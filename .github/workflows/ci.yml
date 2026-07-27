@@ -1,0 +1,124 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          check-latest: true
+
+      - name: Run golangci-lint
+        run: |
+          # Pin golangci-lint to a specific commit SHA for reproducible lint runs.
+          go run github.com/golangci/golangci-lint/cmd/golangci-lint@8c13211dd7a0f9e9c1688c93a4a4e4fbc690537b5 \
+            run --out-format checkstyle > golangci-lint-report.out 2>&1 || true
+
+      - name: Upload lint report
+        uses: actions/upload-artifact@v4
+        with:
+          name: lint-report
+          path: golangci-lint-report.out
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          check-latest: true
+
+      - name: Run Tests with Race Detector and Coverage
+        run: |
+          go test -v -race -coverprofile=coverage.out ./internal/...
+
+      - name: Verify Coverage Threshold (>= 75%)
+        run: |
+          grep -v -E "internal/admin/proto|internal/metrics" coverage.out > coverage_clean.out
+          COVERAGE=$(go tool cover -func=coverage_clean.out | grep total: | awk '{print $3}' | sed 's/%//')
+          echo "Total Statement Coverage: ${COVERAGE}%"
+          awk -v cov="$COVERAGE" 'BEGIN { if (cov < 75.0) { print "Coverage below 75%"; exit 1 } }'
+
+      - name: Run Fuzz Tests (regression mode)
+        continue-on-error: true
+        run: |
+          find internal -name '*_fuzz_test.go' -exec dirname {} \; | sort -u | while read -r pkg; do
+            echo "→ fuzzing $pkg (30s)"
+            go test -fuzz=Fuzz -fuzztime=30s -run='^$' "./$pkg" || true
+          done
+
+      - name: Build Docker Image Check
+        run: |
+          docker build -t aqueduct:ci .
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage_clean.out
+
+  analyze:
+    name: Analyze
+    needs: [lint, test]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          check-latest: true
+
+      - name: Download lint report
+        uses: actions/download-artifact@v4
+        with:
+          name: lint-report
+
+      - name: Download coverage report
+        uses: actions/download-artifact@v4
+        with:
+          name: coverage-report
+
+      - name: Run gosec (Go Security Scanner)
+        continue-on-error: true
+        # Use `go run` against the locked version in tools.go (// +build tools)
+        # instead of `go install @tag`, so the dependency is tracked in go.sum
+        # per SonarQube rule S8545 (lock-file enforcing command).
+        run: |
+          go run github.com/securego/gosec/v2/cmd/gosec -fmt=sarif -out=gosec-report.sarif ./...
+
+      - name: Upload gosec SARIF to GitHub
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: gosec-report.sarif
+          category: gosec
+
+      - name: SonarCloud Scan
+        uses: SonarSource/sonarcloud-github-action@master
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}

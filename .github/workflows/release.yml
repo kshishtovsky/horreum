@@ -1,0 +1,75 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+jobs:
+  release:
+    name: Build & Publish Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # required for git shortlog to compute contributors
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+
+      - name: Cross-Compile Binaries
+        run: |
+          VERSION="${GITHUB_REF#refs/tags/}"
+          mkdir -p dist/staging
+
+          targets=(
+            "linux/amd64/linux-amd64"
+            "linux/arm64/linux-arm64"
+            "darwin/amd64/darwin-amd64"
+            "darwin/arm64/darwin-arm64"
+          )
+
+          for entry in "${targets[@]}"; do
+            IFS="/" read -r goos goarch suffix <<< "$entry"
+            echo "→ Building ${goos}/${goarch}..."
+            CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" \
+              go build -ldflags="-s -w" \
+              -o "dist/staging/aqueduct-broker" ./cmd/broker
+            tar -czf "dist/aqueduct-${VERSION}-${suffix}.tar.gz" \
+              -C dist/staging aqueduct-broker
+            rm dist/staging/aqueduct-broker
+          done
+
+          rmdir dist/staging
+
+      - name: Previous Tag
+        id: prevtag
+        run: |
+          PREV=$(git tag --sort=-version:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sed -n '2p' || echo "")
+          if [ -z "$PREV" ]; then
+            # fallback: first commit
+            PREV=$(git rev-list --max-parents=0 HEAD)
+          fi
+          echo "tag=$PREV" >> "$GITHUB_OUTPUT"
+          echo "Previous tag: $PREV"
+
+      - name: Generate Release Body
+        id: release_notes
+        run: |
+          VERSION="${GITHUB_REF#refs/tags/}"
+          PREVIOUS_TAG="${{ steps.prevtag.outputs.tag }}"
+          bash .github/scripts/release-body.sh "$VERSION" "$PREVIOUS_TAG" dist
+          echo "path=release_body.md" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@be72d2e152a185f1b5b5a87ae1cbb44664a8145e # action-gh-release v2.3.1
+        with:
+          files: dist/*.tar.gz
+          body_path: ${{ steps.release_notes.outputs.path }}
+          fail_on_unmatched_files: true

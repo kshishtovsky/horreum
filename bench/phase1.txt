@@ -1,0 +1,27 @@
+goos: linux
+goarch: amd64
+pkg: github.com/horreum/horreum/internal/arena
+cpu: AMD Ryzen 5 5500U with Radeon Graphics         
+BenchmarkArenaPut/64B-12    	22425252	        53.47 ns/op	       0 B/op	       0 allocs/op
+BenchmarkArenaPut/1K-12     	 2258498	       518.4 ns/op	       0 B/op	       0 allocs/op
+BenchmarkArenaPut/64K-12    	   34074	     32366 ns/op	       0 B/op	       0 allocs/op
+BenchmarkArenaPut/1M-12     	    2148	    550953 ns/op	       0 B/op	       0 allocs/op
+BenchmarkArenaView/64B-12   	662157312	         1.789 ns/op	       0 B/op	       0 allocs/op
+BenchmarkArenaView/1K-12    	664231747	         1.784 ns/op	       0 B/op	       0 allocs/op
+BenchmarkArenaView/64K-12   	666993534	         1.790 ns/op	       0 B/op	       0 allocs/op
+BenchmarkArenaView/1M-12    	661263613	         1.806 ns/op	       0 B/op	       0 allocs/op
+BenchmarkArenaPutView/64B-12         	18640764	        64.86 ns/op	       0 B/op	       0 allocs/op
+BenchmarkArenaPutView/1K-12          	 2217128	       521.9 ns/op	       0 B/op	       0 allocs/op
+BenchmarkArenaPutView/64K-12         	   35034	     32695 ns/op	       0 B/op	       0 allocs/op
+BenchmarkArenaPutView/1M-12          	    2050	    553136 ns/op	       0 B/op	       0 allocs/op
+BenchmarkArenaFree-12                	19900434	        57.92 ns/op	      16 B/op	       1 allocs/op
+PASS
+ok  	github.com/horreum/horreum/internal/arena	18.194s
+goos: linux
+goarch: amd64
+pkg: github.com/horreum/horreum/internal/index
+cpu: AMD Ryzen 5 5500U with Radeon Graphics         
+BenchmarkIndexGet-12    	64451572	        16.02 ns/op	       0 B/op	       0 allocs/op
+BenchmarkIndexPut-12    	 3674161	       455.8 ns/op	     149 B/op	       2 allocs/op
+PASS
+ok  	github.com/horreum/horreum/internal/index	4.250s

@@ -10,7 +10,7 @@ import (
 type Entry struct {
 	Hash   uint64
 	KeyLen uint16
-	Handle arena.Handle
+	Handle arena.Handle // 12 bytes: Offset, Size, Meta, Region, _
 }
 
 // HashIndex is an open-addressing hash table mapping byte-slice keys
@@ -138,6 +138,55 @@ func findGap(desired, current, mask uint64, keys [][]byte) uint64 {
 	return current
 }
 
+// SnapshotEntry pairs a bucket Entry with its key bytes for serialization.
+type SnapshotEntry struct {
+	Entry
+	Key []byte
+}
+
+// Snapshot returns all live entries in arbitrary order. Used by the
+// persist layer to write a checkpoint of the HashIndex.
+//
+// Allocates O(N) where N is the entry count. Not safe for concurrent
+// mutation; the caller must serialize access.
+func (h *HashIndex) Snapshot() []SnapshotEntry {
+	if h.count == 0 || len(h.buckets) == 0 {
+		return nil
+	}
+	snap := make([]SnapshotEntry, 0, h.count)
+	for i := range h.buckets {
+		if h.keys[i] != nil {
+			snap = append(snap, SnapshotEntry{Entry: h.buckets[i], Key: h.keys[i]})
+		}
+	}
+	return snap
+}
+
+// Add inserts an entry without growing the table. Used by the persist
+// layer when loading from a checkpoint; the caller has already sized
+// the HashIndex with New(initialBuckets) to fit the checkpoint.
+//
+// Caller must guarantee that buckets were never filled above load
+// factor 0.5; Add does not enforce this. Returns false if a duplicate
+// key is encountered (caller decides whether to abort).
+func (h *HashIndex) Add(key []byte, hd arena.Handle) bool {
+	hash := fnv64(key)
+	idx := hash & h.mask
+	for {
+		if h.keys[idx] == nil {
+			h.buckets[idx] = Entry{Hash: hash, KeyLen: uint16(len(key)), Handle: hd}
+			h.keys[idx] = key
+			h.count++
+			return true
+		}
+		if h.buckets[idx].Hash == hash && h.buckets[idx].KeyLen == uint16(len(key)) && bytesEqual(h.keys[idx], key) {
+			// Duplicate — caller should reject; return false.
+			return false
+		}
+		idx = (idx + 1) & h.mask
+	}
+}
+
 func (h *HashIndex) grow() {
 	oldBuckets := h.buckets
 	oldKeys := h.keys
@@ -151,6 +200,25 @@ func (h *HashIndex) grow() {
 			h.Put(oldKeys[i], entry.Handle)
 		}
 	}
+}
+
+// NewForCount creates a HashIndex sized to hold at least n entries
+// without growing. Round-up to power-of-two with at least 2x headroom.
+func NewForCount(n int) *HashIndex {
+	cap := nextPowerOfTwo(uint64(n) * 2)
+	if cap < 8 {
+		cap = 8
+	}
+	return &HashIndex{
+		buckets: make([]Entry, cap),
+		keys:    make([][]byte, cap),
+		mask:    uint64(cap) - 1,
+	}
+}
+
+// Count returns the number of live entries.
+func (h *HashIndex) Count() int {
+	return h.count
 }
 
 func fnv64(data []byte) uint64 {

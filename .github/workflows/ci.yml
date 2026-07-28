@@ -20,7 +20,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.25'
+          go-version-file: go.mod
           check-latest: true
 
       - name: Run golangci-lint
@@ -44,7 +44,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.25'
+          go-version-file: go.mod
           check-latest: true
 
       - name: Run Tests with Race Detector and Coverage
@@ -53,72 +53,34 @@ jobs:
 
       - name: Verify Coverage Threshold (>= 75%)
         run: |
-          grep -v -E "internal/admin/proto|internal/metrics" coverage.out > coverage_clean.out
-          COVERAGE=$(go tool cover -func=coverage_clean.out | grep total: | awk '{print $3}' | sed 's/%//')
+          COVERAGE=$(go tool cover -func=coverage.out | grep total: | awk '{print $3}' | sed 's/%//')
           echo "Total Statement Coverage: ${COVERAGE}%"
           awk -v cov="$COVERAGE" 'BEGIN { if (cov < 75.0) { print "Coverage below 75%"; exit 1 } }'
-
-      - name: Run Fuzz Tests (regression mode)
-        continue-on-error: true
-        run: |
-          find internal -name '*_fuzz_test.go' -exec dirname {} \; | sort -u | while read -r pkg; do
-            echo "→ fuzzing $pkg (30s)"
-            go test -fuzz=Fuzz -fuzztime=30s -run='^$' "./$pkg" || true
-          done
-
-      - name: Build Docker Image Check
-        run: |
-          docker build -t aqueduct:ci .
 
       - name: Upload coverage report
         uses: actions/upload-artifact@v4
         with:
           name: coverage-report
-          path: coverage_clean.out
+          path: coverage.out
 
-  analyze:
-    name: Analyze
-    needs: [lint, test]
+  bench:
+    name: Benchmarks
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      security-events: write
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.25'
+          go-version-file: go.mod
           check-latest: true
 
-      - name: Download lint report
-        uses: actions/download-artifact@v4
-        with:
-          name: lint-report
-
-      - name: Download coverage report
-        uses: actions/download-artifact@v4
-        with:
-          name: coverage-report
-
-      - name: Run gosec (Go Security Scanner)
-        continue-on-error: true
-        # Use `go run` against the locked version in tools.go (// +build tools)
-        # instead of `go install @tag`, so the dependency is tracked in go.sum
-        # per SonarQube rule S8545 (lock-file enforcing command).
+      - name: Run Benchmarks
         run: |
-          go run github.com/securego/gosec/v2/cmd/gosec -fmt=sarif -out=gosec-report.sarif ./...
+          go test -bench=. -benchmem -count=5 -timeout=20m ./internal/arena/... ./internal/index/... | tee bench.txt
 
-      - name: Upload gosec SARIF to GitHub
-        uses: github/codeql-action/upload-sarif@v3
+      - name: Upload benchmark results
+        uses: actions/upload-artifact@v4
         with:
-          sarif_file: gosec-report.sarif
-          category: gosec
-
-      - name: SonarCloud Scan
-        uses: SonarSource/sonarcloud-github-action@master
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          name: benchmark-results
+          path: bench.txt

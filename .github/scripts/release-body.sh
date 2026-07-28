@@ -41,56 +41,81 @@ fi
 
 # ── Build the markdown body ────────────────────────────────────────
 {
-  echo "# 🚀 Aqueduct ${VERSION}"
+  echo "# 🚀 Horreum ${VERSION}"
   echo
-  echo "> **Ultra-high performance, zero-allocation QUIC message broker.**"
-  echo "> [GitHub](https://github.com/kshishtovsky/aqueduct) ·"
-  echo "> [Documentation](https://github.com/kshishtovsky/aqueduct/tree/main/docs/en) ·"
-  echo "> [Benchmarks](https://github.com/kshishtovsky/aqueduct#benchmarking-aqueduct-bench)"
-  echo
-  echo "---"
-  echo
-  echo "## 📋 Changelog"
-  echo
-if [ -z "${CHANGELOG_SECTION}" ]; then
-  echo "_No changelog entry for this version._"
-else
-  echo "${CHANGELOG_SECTION}"
-fi
-echo
-echo "---"
-echo
-echo "## 🧑‍💻 Contributors"
-  echo
-  echo "This release includes contributions from:"
-  echo
-  echo "${CONTRIBUTORS}"
+  echo "> **Arena allocator + mmap storage engine for Go.**"
+  echo "> [GitHub](https://github.com/horreum/horreum) ·"
+  echo "> [Benchmarks](https://github.com/horreum/horreum#benchmarking)"
   echo
   echo "---"
   echo
-  echo "## 📦 Downloads"
-  echo
-  echo "| Platform | Architecture | File |"
-  echo "|---|---|---|"
-  echo "| Linux | \`amd64\` | \`aqueduct-${VERSION}-linux-amd64.tar.gz\` |"
-  echo "| Linux | \`arm64\` | \`aqueduct-${VERSION}-linux-arm64.tar.gz\` |"
-  echo "| macOS (Intel) | \`amd64\` | \`aqueduct-${VERSION}-darwin-amd64.tar.gz\` |"
-  echo "| macOS (Apple Silicon) | \`arm64\` | \`aqueduct-${VERSION}-darwin-arm64.tar.gz\` |"
-  echo
-  echo "## 🔐 Checksums (SHA256)"
-  echo
-  echo '```'
-  if [ -n "$CHECKSUMS" ]; then
-    echo "${CHECKSUMS}"
-  else
-    echo "  (generated during CI build)"
-  fi
-  echo '```'
-  echo
-  echo "---"
-  echo
-  echo "*Full changelog: [CHANGELOG.md](https://github.com/kshishtovsky/aqueduct/blob/main/CHANGELOG.md)*"
-  echo "*Previous release: [${PREVIOUS_TAG}](https://github.com/kshishtovsky/aqueduct/releases/tag/${PREVIOUS_TAG})*"
-} > release_body.md
 
-echo "✓ Release body written: $(wc -c < release_body.md) bytes"
+  # ── CHANGELOG ──
+  if [ -n "$CHANGELOG_SECTION" ]; then
+    echo "$CHANGELOG_SECTION"
+  else
+    echo "## Changes"
+    echo
+    echo "No changelog entry found for ${VERSION}."
+  fi
+
+  # ── Download table ──
+  echo
+  echo "## Downloads"
+  echo
+  if [ -d "$DIST_DIR" ]; then
+    echo "| OS | Architecture | Download |"
+    echo "|:---|:-------------|:---------|"
+    BASE_URL="https://github.com/horreum/horreum/releases/download/${VERSION}"
+
+    for FILE in "$DIST_DIR"/*.tar.gz; do
+      [ -f "$FILE" ] || continue
+      FILENAME=$(basename "$FILE")
+      ARCH_PART=$(echo "$FILENAME" | sed "s/horreum-${VERSION}-//;s/\.tar\.gz//")
+
+      OS=$(echo "$ARCH_PART" | cut -d'-' -f1)
+      ARCH=$(echo "$ARCH_PART" | cut -d'-' -f2)
+      [ "$OS" = "darwin" ] && OS="macOS"
+      OS=$(echo "$OS" | awk '{print toupper(substr($0,1,1)) tolower(substr($0,2))}')
+      ARCH=$(echo "$ARCH" | awk '{print toupper(substr($0,1,1)) tolower(substr($0,2))}')
+
+      echo "| ${OS} | ${ARCH} | [Download](${BASE_URL}/${FILENAME}) |"
+    done
+  else
+    echo "No pre-built binaries available for this release."
+  fi
+
+  # ── Installation ──
+  echo
+  echo "## Installation"
+  echo
+  echo '```bash'
+  echo "# Linux/macOS (amd64/arm64)"
+  echo "curl -LO https://github.com/horreum/horreum/releases/download/${VERSION}/horreum-${VERSION}-linux-amd64.tar.gz"
+  echo "tar xzf horreum-${VERSION}-linux-amd64.tar.gz"
+  echo "sudo mv horreum /usr/local/bin/horreum"  # TODO: match actual binary name
+  echo '```'
+
+  # ── Contributors ──
+  echo
+  echo "## Contributors"
+  echo
+  echo "$CONTRIBUTORS"
+  echo
+
+  # ── Checksums ──
+  if [ -n "$CHECKSUMS" ]; then
+    echo "## Checksums"
+    echo
+    echo "| File | SHA-256 |"
+    echo "|:-----|:--------|"
+    while IFS= read -r line; do
+      HASH=$(echo "$line" | awk '{print $1}')
+      FILE=$(echo "$line" | awk '{print $2}')
+      echo "| ${FILE} | \`${HASH}\` |"
+    done <<< "$CHECKSUMS"
+  fi
+} > release-body.md
+
+echo "✅ Release body generated: release-body.md"
+echo "Total characters: $(wc -c < release-body.md)"

@@ -22,9 +22,10 @@ COPY . .
 # stripped binary that runs on any Linux without libc.
 ARG VERSION=dev
 ARG COMMIT=unknown
+ARG TARGETARCH
 RUN CGO_ENABLED=0 \
     GOOS=linux \
-    GOARCH=${TARGETARCH:-amd64} \
+    GOARCH="${TARGETARCH:-amd64}" \
     go build \
         -trimpath \
         -ldflags="-s -w -X main.version=${VERSION} -X main.commit=${COMMIT}" \

@@ -77,7 +77,11 @@ jobs:
 
       - name: Run Benchmarks
         run: |
-          go test -bench=. -benchmem -count=1 -timeout=20m ./internal/arena/... ./internal/index/... | tee bench.txt
+          # benchtime=10x caps each benchmark at 10 iterations so the
+          # job finishes quickly on PR runners and is no longer
+          # killed by the 20m timeout.  Release builds use the full
+          # benchmarks via Makefile bench target.
+          go test -bench=. -benchmem -benchtime=10x -count=1 -timeout=20m ./internal/arena/... ./internal/index/... | tee bench.txt
 
       - name: Upload benchmark results
         uses: actions/upload-artifact@v4

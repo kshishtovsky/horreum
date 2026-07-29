@@ -2,8 +2,10 @@
 package main
 
 import (
+	"bytes"
 	"flag"
 	"fmt"
+	"io"
 	"math"
 	"math/rand"
 	"os"
@@ -232,21 +234,37 @@ func getVmRSS() uint64 {
 	if err != nil {
 		return 0
 	}
-	var rss uint64
-	for i := 0; i < len(data); i++ {
-		if data[i] == 'V' && i+6 < len(data) && string(data[i:i+6]) == "VmRSS:" {
-			j := i + 6
-			for j < len(data) && (data[j] == ' ' || data[j] == '\t') {
-				j++
-			}
-			for j < len(data) && data[j] >= '0' && data[j] <= '9' {
-				rss = rss*10 + uint64(data[j]-'0')
-				j++
-			}
-			return rss * 1024
-		}
+	return parseVmRSSFrom(bytes.NewReader(data))
+}
+
+// parseVmRSSFrom scans an /proc/self/status-like stream for "VmRSS:" and
+// returns the value in bytes (the on-disk unit is kB).  Returns 0 if the
+// key is missing or the value is malformed.
+func parseVmRSSFrom(r io.Reader) uint64 {
+	const key = "VmRSS:"
+	buf := make([]byte, 4096)
+	n, _ := r.Read(buf)
+	if n == 0 {
+		return 0
 	}
-	return 0
+	data := buf[:n]
+	idx := bytes.Index(data, []byte(key))
+	if idx < 0 {
+		return 0
+	}
+	j := idx + len(key)
+	for j < len(data) && (data[j] == ' ' || data[j] == '\t') {
+		j++
+	}
+	var rss uint64
+	for j < len(data) && data[j] >= '0' && data[j] <= '9' {
+		rss = rss*10 + uint64(data[j]-'0')
+		j++
+	}
+	if rss == 0 {
+		return 0
+	}
+	return rss * 1024
 }
 
 var _ = runtime.NumCPU

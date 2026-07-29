@@ -33,17 +33,22 @@ jobs:
             "linux/arm64/linux-arm64"
             "darwin/amd64/darwin-amd64"
             "darwin/arm64/darwin-arm64"
+            "windows/amd64/windows-amd64"
           )
 
           for entry in "${targets[@]}"; do
             IFS="/" read -r goos goarch suffix <<< "$entry"
             echo "→ Building ${goos}/${goarch}..."
+            bin_name="horreum"
+            if [ "$goos" = "windows" ]; then
+              bin_name="horreum.exe"
+            fi
             CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" \
               go build -ldflags="-s -w" \
-              -o "dist/staging/horreum" ./cmd/horreum  # TODO: add cmd/horreum
+              -o "dist/staging/${bin_name}" ./cmd/horreum
             tar -czf "dist/horreum-${VERSION}-${suffix}.tar.gz" \
-              -C dist staging/horreum
-            rm dist/staging/horreum
+              -C dist "staging/${bin_name}"
+            rm "dist/staging/${bin_name}"
           done
 
           rmdir dist/staging

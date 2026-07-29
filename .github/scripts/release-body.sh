@@ -93,7 +93,7 @@ fi
   echo "# Linux/macOS (amd64/arm64)"
   echo "curl -LO https://github.com/horreum/horreum/releases/download/${VERSION}/horreum-${VERSION}-linux-amd64.tar.gz"
   echo "tar xzf horreum-${VERSION}-linux-amd64.tar.gz"
-  echo "sudo mv horreum /usr/local/bin/horreum"  # TODO: match actual binary name
+  echo "sudo mv horreum /usr/local/bin/horreum"
   echo '```'
 
   # ── Contributors ──

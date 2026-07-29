@@ -44,6 +44,13 @@ func (a *Allocator) Init(size uint32) {
 	}
 }
 
+// Skip advances the bump pointer past n bytes without allocating.
+// Used by file-backed arenas to reserve the superblock region at the
+// start of the file.  Subsequent Allocs return offsets >= n.
+func (a *Allocator) Skip(n uint32) {
+	a.offset.Store(uint64(n))
+}
+
 // sizeClass returns the index into the sizeClasses array for the given size.
 func sizeClass(n uint32) int {
 	if n <= 8 {

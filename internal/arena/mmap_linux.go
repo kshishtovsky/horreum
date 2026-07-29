@@ -70,7 +70,13 @@ func mmapFileRegion(path string, size uint64, create bool) ([]byte, error) {
 // munmapRegion releases a mmap'd region.
 func munmapRegion(data []byte) error {
 	// SAFETY: data was returned by unix.Mmap and has not been sub-sliced
-	// in a way that changes the base pointer.
+	// in a way that changes the base pointer.  Flush dirty pages before
+	// unmapping so MAP_SHARED regions survive the lifecycle of the
+	// process — Linux's Munmap does not implicitly msync, and a process
+	// that skips explicit MS_SYNC may drop data on close.
+	if err := unix.Msync(data, unix.MS_SYNC); err != nil {
+		return err
+	}
 	return unix.Munmap(data)
 }
 

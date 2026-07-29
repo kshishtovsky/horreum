@@ -27,6 +27,27 @@ import (
 	"github.com/horreum/horreum/internal/index"
 )
 
+// moduleRoot returns the directory containing the project's go.mod,
+// walking up from this test file.  Used to anchor subprocess builds
+// so the Go module resolver can locate internal/arena/persist.
+func moduleRoot(t *testing.T) string {
+	t.Helper()
+	dir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			t.Fatalf("go.mod not found above %s", dir)
+		}
+		dir = parent
+	}
+}
+
 // TestPutGetRoundTrip verifies the basic durability contract: a Put
 // followed by a Sync + Close + Open should yield the same value via
 // the arena handle recorded at Put time.
@@ -243,15 +264,26 @@ func main() {
 		t.Fatalf("write helper: %v", err)
 	}
 	exe := filepath.Join(dir, "helper")
-	if err := exec.Command("go", "build", "-o", exe, helperPath).Run(); err != nil {
-		t.Fatalf("build helper: %v", err)
+	_ = exe
+	_ = os.Remove(helperPath) // not needed; we use cmd/helper_test instead
+
+	// Run the pre-built helper binary at cmd/helper_test.  Building
+	// the inline helper.go outside the module root is rejected by
+	// Go's internal-package rules; reusing the in-tree helper
+	// avoids duplicating the source and keeps the build anchored
+	// inside the module.
+	root := moduleRoot(t)
+	helperBin := filepath.Join(root, "cmd", "helper_test", "helper")
+	build := exec.Command("go", "build", "-o", helperBin, "./cmd/helper_test")
+	build.Dir = root
+	if out, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build helper: %v\n%s", err, out)
 	}
-	_ = os.Remove(helperPath) // not needed after build
 
 	// Run helper, then kill it after a short delay.
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, exe, dir, fmt.Sprint(numObjects), fmt.Sprint(payloadSize))
+	cmd := exec.CommandContext(ctx, helperBin, dir, fmt.Sprint(numObjects), fmt.Sprint(payloadSize))
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Start(); err != nil {

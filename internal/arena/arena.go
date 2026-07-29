@@ -11,6 +11,44 @@ import (
 // MaxObjectSize is the maximum payload size for a single Put.
 const MaxObjectSize = 64 << 20 // 64 MiB
 
+// persistSuperblockBytes matches internal/arena/persist.superblockSize.
+const persistSuperblockBytes = 4096
+
+// persistReservedBytes returns the prefix of a file-backed arena
+// reserved for the persist layer's superblock and checkpoint region.
+// Arena allocations skip past this prefix so Put handles never
+// collide with persist-managed bytes.
+//
+// Layout (file-backed only):
+//
+//	[0 .. reserved)               superblock + checkpoint region
+//	[reserved .. regionSize)      arena objects (Put handles)
+//
+// The total is persistSuperblockBytes + checkpointRegionBytes for
+// the given regionSize (mirrors internal/arena/persist.checkpointMaxSize).
+// The result is capped at half the region so callers using small
+// regions (e.g. 1 MiB arenas without persist) still have room to
+// allocate.  When the cap kicks in the persist layer's checkpoint
+// region is no longer fully reserved — that is the caller's
+// responsibility to enforce, but persist is only used with regions
+// large enough to skip the cap in practice.
+func persistReservedBytes(regionSize uint64) uint32 {
+	const checkpointCap = 1 << 20 // 1 MiB
+	ck := regionSize / 8
+	if ck > checkpointCap {
+		ck = checkpointCap
+	}
+	if ck < persistSuperblockBytes {
+		ck = persistSuperblockBytes
+	}
+	reserved := uint64(persistSuperblockBytes) + ck
+	cap := regionSize / 2
+	if reserved > cap {
+		reserved = cap
+	}
+	return uint32(reserved)
+}
+
 var (
 	// ErrArenaFull is returned when all regions are exhausted and a new
 	// region cannot be allocated (e.g. OS limit).
@@ -129,6 +167,11 @@ func OpenFileManager(path string, regionSize uint64, create bool) (*Manager, err
 	}
 	r := &region{data: data}
 	r.alloc.Init(uint32(regionSize))
+	// Reserve the persist-managed prefix (superblock + checkpoint
+	// region) so handle-allocating Puts cannot overwrite it.  We
+	// apply the skip on both create=true and create=false so reopened
+	// managers continue to honour the same layout.
+	r.alloc.Skip(persistReservedBytes(regionSize))
 	r.meta = make([]atomic.Int32, uint32(len(r.data))/alignBytes)
 	m := &Manager{
 		size:     regionSize,
@@ -257,6 +300,12 @@ func (m *Manager) Stats() Stats {
 		s.FreeBytes += rs.FreeBytes
 		s.FreelistLen += rs.FreelistLen
 	}
+	// Subtract the persist-managed prefix so Stats.UsedBytes reports
+	// only object bytes — the prefix is reserved for the superblock
+	// and checkpoint region and is not a real object allocation.
+	if m.filePath != "" {
+		s.UsedBytes -= uint64(persistReservedBytes(m.size))
+	}
 	totalFree := s.FreeBytes
 	if totalFree > 0 {
 		var bumpTail uint64
@@ -266,6 +315,26 @@ func (m *Manager) Stats() Stats {
 		s.Fragmentation = 1.0 - float64(bumpTail)/float64(totalFree)
 	}
 	return s
+}
+
+// SetLiveObjects replaces the in-memory live-object counter.  Used
+// by the persist layer after a cold start to reconcile the count
+// with the reconstructed HashIndex, since arena.Manager does not
+// persist liveObjs across processes.
+func (m *Manager) SetLiveObjects(n uint64) {
+	m.liveObjs.Store(n)
+}
+
+// SetUsedBytes tells the manager that bytes are occupied by objects
+// restored from disk.  Persist calls this after a cold-start so
+// Stats reports the correct utilisation.  The persist-managed
+// prefix (superblock + checkpoint region) is added automatically.
+func (m *Manager) SetUsedBytes(n uint64) {
+	regions := m.loadRegions()
+	if len(regions) == 0 {
+		return
+	}
+	regions[0].alloc.offset.Store(n + uint64(persistReservedBytes(m.size)))
 }
 
 func (m *Manager) Sync() error {

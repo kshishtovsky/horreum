@@ -128,7 +128,11 @@ func (pm *PersistentManager) LoadIndex(idx *index.HashIndex) error {
 		if errors.Is(err, ErrCheckpointBadMagic) {
 			// No checkpoint yet — start from empty index, but
 			// still apply WAL.
-			return ReplayTo(pm.mgr, pm.wal, idx)
+			if err := ReplayTo(pm.mgr, pm.wal, idx); err != nil {
+				return err
+			}
+			pm.syncLiveObjects(idx)
+			return nil
 		}
 		return err
 	}
@@ -136,7 +140,26 @@ func (pm *PersistentManager) LoadIndex(idx *index.HashIndex) error {
 		idx.Add(se.Key, se.Handle)
 	}
 	// Replay WAL on top of checkpoint.
-	return ReplayTo(pm.mgr, pm.wal, idx)
+	if err := ReplayTo(pm.mgr, pm.wal, idx); err != nil {
+		return err
+	}
+	pm.syncLiveObjects(idx)
+	return nil
+}
+
+// syncLiveObjects refreshes the underlying arena Manager's live-object
+// counter from the index.  arena.Manager.liveObjs is process-local
+// and is not persisted across restarts; the index is the only source
+// of truth for "how many live handles exist" after a cold start.
+// We also recompute UsedBytes as the sum of live handle sizes so
+// Stats.UsedBytes matches the pre-restart value.
+func (pm *PersistentManager) syncLiveObjects(idx *index.HashIndex) {
+	pm.mgr.SetLiveObjects(uint64(idx.Count()))
+	var used uint64
+	for _, se := range idx.Snapshot() {
+		used += uint64(se.Handle.Size)
+	}
+	pm.mgr.SetUsedBytes(used)
 }
 
 // Replay walks the WAL from offset 0 and applies every record to

@@ -428,13 +428,25 @@ func (m *Manager) CASMeta(h Handle, oldMeta, newMeta uint16) bool {
 
 // OrMetaBits atomically ORs the given bits into the meta field via CAS loop.
 func (m *Manager) OrMetaBits(h Handle, bits uint16) {
+	regions := m.loadRegions()
+	if int(h.Region) >= len(regions) {
+		return
+	}
+	reg := regions[h.Region]
+	if reg.meta == nil {
+		return
+	}
+	idx := h.Offset / alignBytes
+	if idx >= uint32(len(reg.meta)) {
+		return
+	}
 	for {
-		current := m.GetMeta(h)
+		current := uint16(reg.meta[idx].Load())
 		newVal := current | bits
 		if newVal == current {
 			return
 		}
-		if m.CASMeta(h, current, newVal) {
+		if reg.meta[idx].CompareAndSwap(int32(current), int32(newVal)) {
 			return
 		}
 	}
@@ -442,13 +454,25 @@ func (m *Manager) OrMetaBits(h Handle, bits uint16) {
 
 // ClearMetaBits atomically clears the given bits from the meta field via CAS loop.
 func (m *Manager) ClearMetaBits(h Handle, mask uint16) {
+	regions := m.loadRegions()
+	if int(h.Region) >= len(regions) {
+		return
+	}
+	reg := regions[h.Region]
+	if reg.meta == nil {
+		return
+	}
+	idx := h.Offset / alignBytes
+	if idx >= uint32(len(reg.meta)) {
+		return
+	}
 	for {
-		current := m.GetMeta(h)
+		current := uint16(reg.meta[idx].Load())
 		newVal := current &^ mask
 		if newVal == current {
 			return
 		}
-		if m.CASMeta(h, current, newVal) {
+		if reg.meta[idx].CompareAndSwap(int32(current), int32(newVal)) {
 			return
 		}
 	}

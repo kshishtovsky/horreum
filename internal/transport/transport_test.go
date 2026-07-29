@@ -23,6 +23,8 @@ import (
 
 	qerr "github.com/quic-go/quic-go"
 
+	"github.com/horreum/horreum/internal/compress"
+	"github.com/horreum/horreum/internal/encrypt"
 	"github.com/horreum/horreum/internal/proto"
 	"github.com/horreum/horreum/internal/transport"
 	tpquic "github.com/horreum/horreum/internal/transport/quic"
@@ -301,5 +303,62 @@ func generateTestCert(tb testing.TB) *tls.Certificate {
 	return &cert
 }
 
+func TestTCPEncryptionAndCompressionRoundTrip(t *testing.T) {
+	key := make([]byte, 32)
+	if _, err := rand.Read(key); err != nil {
+		t.Fatal(err)
+	}
+
+	cip, err := encrypt.NewAESGCM(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	comp := compress.NewLZ4(10) // 10 bytes threshold
+
+	srv, err := transport.NewServer(transport.Options{
+		Addr:          "127.0.0.1:0",
+		TransportName: "tcp",
+		ShardConfig: transport.ShardConfig{
+			NumShards:     2,
+			RegionSize:    16 << 20,
+			EvictCapacity: 100,
+			Compressor:    comp,
+			Cipher:        cip,
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+
+	go func() { _ = srv.ListenAndServe() }()
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		_ = srv.Shutdown(ctx)
+		cancel()
+	}()
+
+	conn, err := net.Dial("tcp", srv.Addr().String())
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer conn.Close()
+
+	// Use value that exceeds compression threshold and requires encryption
+	plaintext := []byte("highly compressible compressible compressible compressible payload data")
+
+	sendFrame(t, conn, proto.OpSet, []byte("encryptedKey"), plaintext)
+	if !expectFrame(t, conn, proto.OpSet, []byte("encryptedKey"), nil) {
+		t.FailNow()
+	}
+
+	sendFrame(t, conn, proto.OpGet, []byte("encryptedKey"), nil)
+	resp := readFrame(t, conn)
+	if !bytes.Equal(resp.Value, plaintext) {
+		t.Errorf("got %q, want %q", string(resp.Value), string(plaintext))
+	}
+}
+
 // Compile-time import sanity.
 var _ = tptransport.NewTransport
+

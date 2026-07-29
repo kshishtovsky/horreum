@@ -38,6 +38,6 @@ func init() {
 		if cert == nil {
 			return nil, errNoCert
 		}
-		return NewTransport(opts.Addr, opts.Router, cert)
+		return NewTransport(opts.Addr, opts.Router, cert, opts.Recorder)
 	})
 }

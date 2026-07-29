@@ -13,6 +13,8 @@ import (
 	"sync/atomic"
 
 	"github.com/horreum/horreum/internal/arena"
+	"github.com/horreum/horreum/internal/compress"
+	"github.com/horreum/horreum/internal/encrypt"
 	"github.com/horreum/horreum/internal/eviction"
 	"github.com/horreum/horreum/internal/transport/api"
 )
@@ -35,35 +37,69 @@ var errBackendNil = errors.New("transport: shardCache is nil")
 
 // shardCache is one shared-nothing cache instance.
 type shardCache struct {
-	mgr *arena.Manager
-	ev  *eviction.Eviction
-	idx *shardIndex
+	mgr    *arena.Manager
+	ev     *eviction.Eviction
+	idx    *shardIndex
+	comp   compress.Compressor // nil treated as Noop
+	cipher encrypt.Cipher      // nil treated as Noop
 }
 
 // Compile-time check.
 var _ CacheService = (*shardCache)(nil)
 
 // NewShardCache creates a cache shard with the given arena region size
-// and eviction capacity.
-func NewShardCache(regionSize, evictCapacity uint64) (*shardCache, error) {
+// and eviction capacity.  comp and cipher may be nil (no compression/encryption).
+func NewShardCache(regionSize, evictCapacity uint64, comp compress.Compressor, cipher encrypt.Cipher) (*shardCache, error) {
 	if regionSize == 0 {
 		regionSize = 64 << 20
 	}
 	if evictCapacity == 0 {
 		evictCapacity = 1024
 	}
+	if comp == nil {
+		comp = compress.Noop{}
+	}
+	if cipher == nil {
+		cipher = encrypt.Noop{}
+	}
 	mgr, err := arena.NewManager(regionSize, false)
 	if err != nil {
 		return nil, err
 	}
 	return &shardCache{
-		mgr: mgr,
-		ev:  eviction.New(mgr, evictCapacity),
-		idx: newShardIndex(),
+		mgr:    mgr,
+		ev:     eviction.New(mgr, evictCapacity),
+		idx:    newShardIndex(),
+		comp:   comp,
+		cipher: cipher,
 	}, nil
 }
 
+// newShardCacheFromArena wraps an existing arena.Manager instead of
+// allocating a new region.  Used by the persistent-mode ShardSet.
+func newShardCacheFromArena(mgr *arena.Manager, evictCapacity uint64, comp compress.Compressor, cipher encrypt.Cipher) *shardCache {
+	if evictCapacity == 0 {
+		evictCapacity = 1024
+	}
+	if comp == nil {
+		comp = compress.Noop{}
+	}
+	if cipher == nil {
+		cipher = encrypt.Noop{}
+	}
+	return &shardCache{
+		mgr:    mgr,
+		ev:     eviction.New(mgr, evictCapacity),
+		idx:    newShardIndex(),
+		comp:   comp,
+		cipher: cipher,
+	}
+}
+
 // Set implements CacheService.
+// If compression is enabled and the value exceeds the minimum
+// threshold, the value is compressed before storing in the arena.
+// The CompressedFlag meta bit is set so Get knows to decompress.
 func (s *shardCache) Set(key, value []byte) ([]byte, error) {
 	if s == nil {
 		return nil, errBackendNil
@@ -71,9 +107,38 @@ func (s *shardCache) Set(key, value []byte) ([]byte, error) {
 	if uint64(len(value)) > arena.MaxObjectSize {
 		return nil, ErrTooLarge
 	}
-	h, err := s.mgr.Put(value)
+
+	// 1. Try compression.
+	storeVal := value
+	compressed := false
+	if cBuf, ok := s.comp.Compress(value); ok {
+		storeVal = cBuf
+		compressed = true
+		// cBuf is a pool buffer; we copy into the arena below,
+		// then return it.
+		defer s.comp.PutBuf(cBuf)
+	}
+
+	// 2. Try encryption.
+	encrypted := false
+	if s.cipher != nil && s.cipher.Name() != "none" {
+		encBuf, err := s.cipher.Encrypt(nil, storeVal)
+		if err != nil {
+			return nil, err
+		}
+		storeVal = encBuf
+		encrypted = true
+	}
+
+	h, err := s.mgr.Put(storeVal)
 	if err != nil {
 		return nil, err
+	}
+	if compressed {
+		s.mgr.OrMetaBits(h, arena.CompressedFlag)
+	}
+	if encrypted {
+		s.mgr.OrMetaBits(h, arena.EncryptedFlag)
 	}
 	for _, e := range s.ev.Add(key, h) {
 		_ = s.mgr.Free(e)
@@ -82,10 +147,21 @@ func (s *shardCache) Set(key, value []byte) ([]byte, error) {
 	if replaced {
 		_ = s.mgr.Free(old)
 	}
+	// Return the original (uncompressed, unencrypted) value to the caller.
+	if compressed || encrypted {
+		// Make a copy of the original value — the caller expects
+		// to read the value it just set.
+		out := make([]byte, len(value))
+		copy(out, value)
+		return out, nil
+	}
 	return s.mgr.View(h)
 }
 
 // Get implements CacheService.  Touch on hit updates the S3-FIFO freq.
+//
+// If the stored value has the EncryptedFlag set, it is decrypted.
+// If the stored value has the CompressedFlag set, it is decompressed.
 func (s *shardCache) Get(key []byte) ([]byte, error) {
 	if s == nil {
 		return nil, errBackendNil
@@ -95,7 +171,32 @@ func (s *shardCache) Get(key []byte) ([]byte, error) {
 		return nil, ErrNotFound
 	}
 	s.ev.Touch(h)
-	return s.mgr.View(h)
+	raw, err := s.mgr.View(h)
+	if err != nil {
+		return nil, err
+	}
+
+	// 1. Decrypt if the encrypted flag is set.
+	if s.mgr.GetMeta(h)&arena.EncryptedFlag != 0 {
+		if s.cipher == nil || s.cipher.Name() == "none" {
+			return nil, errors.New("transport: data is encrypted but no cipher key is configured")
+		}
+		dec, err := s.cipher.Decrypt(nil, raw)
+		if err != nil {
+			return nil, err
+		}
+		raw = dec
+	}
+
+	// 2. Decompress if the compressed flag is set.
+	if s.mgr.GetMeta(h)&arena.CompressedFlag != 0 {
+		dec, err := s.comp.Decompress(raw)
+		if err != nil {
+			return nil, err
+		}
+		return dec, nil
+	}
+	return raw, nil
 }
 
 // Delete implements CacheService.
@@ -291,6 +392,12 @@ type ShardConfig struct {
 	// EvictCapacity is the S3-FIFO eviction capacity per shard
 	// (number of objects).
 	EvictCapacity uint64
+	// Compressor is the optional value compressor.  nil means no
+	// compression (Noop).  Shared across all shards.
+	Compressor compress.Compressor
+	// Cipher is the optional value cipher.  nil means no
+	// encryption (Noop).  Shared across all shards.
+	Cipher encrypt.Cipher
 }
 
 // DefaultShardCount returns 4 × NumCPU, clamped to [4, 64].
@@ -322,7 +429,7 @@ func NewShardSet(cfg ShardConfig) (*ShardSet, error) {
 	}
 	ss := &ShardSet{shards: make([]*shardCache, cfg.NumShards)}
 	for i := 0; i < cfg.NumShards; i++ {
-		c, err := NewShardCache(cfg.RegionSize, cfg.EvictCapacity)
+		c, err := NewShardCache(cfg.RegionSize, cfg.EvictCapacity, cfg.Compressor, cfg.Cipher)
 		if err != nil {
 			_ = ss.Close()
 			return nil, err
@@ -375,4 +482,64 @@ func (ss *ShardSet) Close() error {
 		_ = s.Close()
 	}
 	return nil
+}
+
+// Stats returns aggregated arena stats across all shards.
+func (ss *ShardSet) Stats() arena.Stats {
+	if ss == nil {
+		return arena.Stats{}
+	}
+	var out arena.Stats
+	for _, s := range ss.shards {
+		if s == nil {
+			continue
+		}
+		// Each shardCache wraps an arena.Manager; we read its
+		// Stats() directly.
+		sss := s.mgr.Stats()
+		out.UsedBytes += sss.UsedBytes
+		out.FreeBytes += sss.FreeBytes
+		out.LiveObjects += sss.LiveObjects
+		out.FreelistLen += sss.FreelistLen
+	}
+	return out
+}
+
+// NewShardSetOrPanic is the same as NewShardSet but panics on
+// failure.  Used by the CLI which has no recovery path.
+func NewShardSetOrPanic(numShards int, regionSize, evictCap uint64, comp compress.Compressor, cipher encrypt.Cipher) *ShardSet {
+	ss, err := NewShardSet(ShardConfig{
+		NumShards:     numShards,
+		RegionSize:    regionSize,
+		EvictCapacity: evictCap,
+		Compressor:    comp,
+		Cipher:        cipher,
+	})
+	if err != nil {
+		panic(err)
+	}
+	return ss
+}
+
+// NewShardSetFromArena wraps an existing arena.Manager in a ShardSet
+// with a single shard.  The shard reuses the supplied arena instead
+// of allocating its own region.
+//
+// Used by the persistent-mode path in cmd/horreum, which owns the
+// arena Manager via PersistentManager and wants to feed it directly
+// into the transport layer.
+func NewShardSetFromArena(mgr *arena.Manager, numShards int, evictCap uint64, comp compress.Compressor, cipher encrypt.Cipher) *ShardSet {
+	if numShards <= 0 {
+		numShards = 1
+	}
+	if evictCap == 0 {
+		evictCap = 1024
+	}
+	ss := &ShardSet{shards: make([]*shardCache, numShards)}
+	for i := 0; i < numShards; i++ {
+		// Wrap the shared arena Manager.  Each shard gets its own
+		// shardIndex; the arena is shared.
+		ss.shards[i] = newShardCacheFromArena(mgr, evictCap, comp, cipher)
+	}
+	return ss
 }

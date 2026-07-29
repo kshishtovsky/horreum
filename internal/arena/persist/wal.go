@@ -33,8 +33,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"sync"
+	"time"
+
+	"github.com/horreum/horreum/internal/logger"
 )
 
 // WAL record op codes.
@@ -249,7 +253,13 @@ func (w *WAL) appendRecord(op uint8, key, value []byte, h arenaHandleLike) (int6
 func (w *WAL) Sync() error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	return w.file.Sync()
+	t0 := time.Now()
+	err := w.file.Sync()
+	elapsed := time.Since(t0)
+	if elapsed > logger.SlowLogThreshold {
+		slog.Warn("slow WAL sync", "duration", elapsed, "path", w.path)
+	}
+	return err
 }
 
 // Close closes the WAL file.  Outstanding writes are NOT flushed; call

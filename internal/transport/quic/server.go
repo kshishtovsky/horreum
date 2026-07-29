@@ -14,6 +14,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"io"
+	"log/slog"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -21,16 +22,25 @@ import (
 
 	"github.com/quic-go/quic-go"
 
+	"github.com/horreum/horreum/internal/logger"
 	"github.com/horreum/horreum/internal/proto"
 	"github.com/horreum/horreum/internal/transport"
 	"github.com/horreum/horreum/internal/transport/api"
 )
+
+// noopRecorder is used when api.Options.Recorder is nil.
+type noopRecorder struct{}
+
+func (noopRecorder) ObserveSet(string, time.Duration) {}
+func (noopRecorder) ObserveGet(string, time.Duration) {}
+func (noopRecorder) ObserveDel(string, time.Duration) {}
 
 // Transport is the QUIC-specific transport.
 type Transport struct {
 	listener *quic.Listener
 	router   api.ShardRouter
 	workers  *transport.WorkerPool
+	recorder api.Recorder
 	stop     chan struct{}
 	closed   atomic.Bool
 }
@@ -38,12 +48,17 @@ type Transport struct {
 var _ api.Transport = (*Transport)(nil)
 
 // NewTransport creates a QUIC listener.  cert is required.
-func NewTransport(addr string, router api.ShardRouter, cert *tls.Certificate) (*Transport, error) {
+//
+// recorder may be nil; in that case a noop recorder is used.
+func NewTransport(addr string, router api.ShardRouter, cert *tls.Certificate, recorder api.Recorder) (*Transport, error) {
 	if router == nil {
 		return nil, api.ErrNoBackend
 	}
 	if cert == nil {
 		return nil, errors.New("transport/quic: TLS certificate is required")
+	}
+	if recorder == nil {
+		recorder = noopRecorder{}
 	}
 	tlsConf := &tls.Config{
 		Certificates: []tls.Certificate{*cert},
@@ -74,6 +89,7 @@ func NewTransport(addr string, router api.ShardRouter, cert *tls.Certificate) (*
 	t := &Transport{
 		listener: ln,
 		router:   router,
+		recorder: recorder,
 		stop:     make(chan struct{}),
 		workers:  transport.NewWorkerPool(numShards, 4096),
 	}
@@ -106,6 +122,12 @@ func (t *Transport) ListenAndServe() error {
 // Each accepted stream is wrapped as a streamConn (net.Conn adapter)
 // and dispatched to the shard worker pool.
 func (t *Transport) serveConn(conn *quic.Conn) {
+	remoteAddr := conn.RemoteAddr().String()
+	slog.Debug("quic connection accepted", "remote_addr", remoteAddr)
+	defer func() {
+		slog.Debug("quic connection closed", "remote_addr", remoteAddr)
+	}()
+
 	for {
 		stream, err := conn.AcceptStream(context.Background())
 		if err != nil {
@@ -123,6 +145,7 @@ func (t *Transport) serveConn(conn *quic.Conn) {
 // serveStream processes one request/response on one stream.
 func (t *Transport) serveStream(j transport.Job) {
 	c := j.Conn
+	remoteAddr := c.RemoteAddr().String()
 	defer c.Close()
 	_ = c.SetDeadline(time.Now().Add(idleTimeoutQUIC))
 
@@ -140,6 +163,9 @@ func (t *Transport) serveStream(j transport.Job) {
 			if errors.As(err, &nerr) && nerr.Timeout() {
 				return
 			}
+			if logger.NetErrorLimiter.Allow() {
+				slog.Warn("quic stream read error", "remote_addr", remoteAddr, "error", err)
+			}
 			return
 		}
 		if n == 0 {
@@ -147,10 +173,13 @@ func (t *Transport) serveStream(j transport.Job) {
 		}
 		frames, err := parser.Feed(chunk[:n])
 		if err != nil {
+			if logger.NetErrorLimiter.Allow() {
+				slog.Warn("quic stream protocol parsing error", "remote_addr", remoteAddr, "error", err)
+			}
 			return
 		}
 		for i := range frames {
-			if !handleFrameQUIC(t.router, &frames[i], &writeBuf) {
+			if !handleFrameQUIC(t.router, &frames[i], &writeBuf, t.recorder) {
 				return
 			}
 		}
@@ -201,27 +230,36 @@ const (
 )
 
 // handleFrameQUIC is the per-frame handler.
-func handleFrameQUIC(router api.ShardRouter, fr *proto.Frame, writeBuf *[]byte) bool {
+func handleFrameQUIC(router api.ShardRouter, fr *proto.Frame, writeBuf *[]byte, rec api.Recorder) bool {
 	cache := router.CacheFor(fr.Key)
+	status := "ok"
+	t0 := time.Now()
 	switch fr.Op {
 	case proto.OpGet:
 		val, err := cache.Get(fr.Key)
 		if err != nil {
+			status = "err"
 			*writeBuf = proto.EncodeResponse(*writeBuf, proto.OpGet, 1, fr.Key, nil)
+			rec.ObserveGet(status, time.Since(t0))
 			return true
 		}
 		*writeBuf = proto.EncodeResponse(*writeBuf, proto.OpGet, 0, fr.Key, val)
+		rec.ObserveGet(status, time.Since(t0))
 		return true
 	case proto.OpSet:
 		if _, err := cache.Set(fr.Key, fr.Value); err != nil {
+			status = "err"
 			*writeBuf = proto.EncodeResponse(*writeBuf, proto.OpSet, 1, fr.Key, nil)
+			rec.ObserveSet(status, time.Since(t0))
 			return true
 		}
 		*writeBuf = proto.EncodeResponse(*writeBuf, proto.OpSet, 0, fr.Key, nil)
+		rec.ObserveSet(status, time.Since(t0))
 		return true
 	case proto.OpDel:
 		_ = cache.Delete(fr.Key)
 		*writeBuf = proto.EncodeResponse(*writeBuf, proto.OpDel, 0, fr.Key, nil)
+		rec.ObserveDel(status, time.Since(t0))
 		return true
 	}
 	return false

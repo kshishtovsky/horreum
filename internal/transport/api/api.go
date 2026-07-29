@@ -9,7 +9,20 @@ import (
 	"context"
 	"errors"
 	"net"
+	"time"
 )
+
+// Recorder records per-op latency and counter increments.  The
+// transport layer invokes the appropriate Observe* method on every
+// frame; nil is treated as "no recording".  The recorder interface
+// lives here so transport implementations don't have to import the
+// metrics package directly (which would force a metrics dependency
+// even on minimal builds).
+type Recorder interface {
+	ObserveSet(status string, dur time.Duration)
+	ObserveGet(status string, dur time.Duration)
+	ObserveDel(status string, dur time.Duration)
+}
 
 // Transport is the abstract listener / connection-servicer used by
 // Server.  Implementations: tcp.Transport, quic.Transport.

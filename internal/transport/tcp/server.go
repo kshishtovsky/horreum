@@ -19,20 +19,31 @@ import (
 	"context"
 	"errors"
 	"io"
+	"log/slog"
 	"net"
 	"sync/atomic"
 	"time"
 
+	"github.com/horreum/horreum/internal/logger"
 	"github.com/horreum/horreum/internal/proto"
 	"github.com/horreum/horreum/internal/transport"
 	"github.com/horreum/horreum/internal/transport/api"
 )
+
+// noopRecorder is used when api.Options.Recorder is nil.  Its methods
+// are empty; the compiler may inline them away.
+type noopRecorder struct{}
+
+func (noopRecorder) ObserveSet(string, time.Duration) {}
+func (noopRecorder) ObserveGet(string, time.Duration) {}
+func (noopRecorder) ObserveDel(string, time.Duration) {}
 
 // Transport is the TCP-specific transport.
 type Transport struct {
 	listener net.Listener
 	router   api.ShardRouter
 	workers  *transport.WorkerPool
+	recorder api.Recorder
 	stop     chan struct{}
 	closed   atomic.Bool
 }
@@ -41,7 +52,9 @@ var _ api.Transport = (*Transport)(nil)
 
 // NewTransport creates a TCP listener bound to addr and wires it to
 // the given ShardRouter.
-func NewTransport(addr string, router api.ShardRouter) (*Transport, error) {
+//
+// recorder may be nil; in that case a noop recorder is used.
+func NewTransport(addr string, router api.ShardRouter, recorder api.Recorder) (*Transport, error) {
 	if router == nil {
 		return nil, api.ErrNoBackend
 	}
@@ -53,9 +66,13 @@ func NewTransport(addr string, router api.ShardRouter) (*Transport, error) {
 	if numShards <= 0 {
 		numShards = 8
 	}
+	if recorder == nil {
+		recorder = noopRecorder{}
+	}
 	t := &Transport{
 		listener: ln,
 		router:   router,
+		recorder: recorder,
 		stop:     make(chan struct{}),
 		workers:  transport.NewWorkerPool(numShards, 4096),
 	}
@@ -155,7 +172,12 @@ func (t *Transport) handle(j transport.Job) {
 // which is the case when the client's keys hash to the same shard as
 // the connection's remote IP).
 func (t *Transport) serve(c net.Conn) {
-	defer c.Close()
+	remoteAddr := c.RemoteAddr().String()
+	slog.Debug("client connected", "remote_addr", remoteAddr)
+	defer func() {
+		slog.Debug("client disconnected", "remote_addr", remoteAddr)
+		_ = c.Close()
+	}()
 	_ = c.SetDeadline(time.Now().Add(idleTimeout))
 
 	parser := proto.NewParser()
@@ -172,6 +194,9 @@ func (t *Transport) serve(c net.Conn) {
 			if errors.As(err, &ne) && ne.Timeout() {
 				return
 			}
+			if logger.NetErrorLimiter.Allow() {
+				slog.Warn("connection read error", "remote_addr", remoteAddr, "error", err)
+			}
 			return
 		}
 		if n == 0 {
@@ -179,10 +204,13 @@ func (t *Transport) serve(c net.Conn) {
 		}
 		frames, perr := parser.Feed(chunk[:n])
 		if perr != nil {
+			if logger.NetErrorLimiter.Allow() {
+				slog.Warn("protocol parsing error", "remote_addr", remoteAddr, "error", perr)
+			}
 			return
 		}
 		for i := range frames {
-			if !handleFrame(t.router, &frames[i], &writeBuf) {
+			if !handleFrame(t.router, &frames[i], &writeBuf, t.recorder) {
 				return
 			}
 		}
@@ -204,27 +232,36 @@ func (t *Transport) serve(c net.Conn) {
 // shard worker enforces serialisation, so the cache's single-threaded
 // invariant holds.  See Transport.ListenAndServe for the dispatch
 // logic.
-func handleFrame(router api.ShardRouter, fr *proto.Frame, writeBuf *[]byte) bool {
+func handleFrame(router api.ShardRouter, fr *proto.Frame, writeBuf *[]byte, rec api.Recorder) bool {
 	cache := router.CacheFor(fr.Key)
+	status := "ok"
+	t0 := time.Now()
 	switch fr.Op {
 	case proto.OpGet:
 		val, err := cache.Get(fr.Key)
 		if err != nil {
+			status = "err"
 			*writeBuf = proto.EncodeResponse(*writeBuf, proto.OpGet, 1, fr.Key, nil)
+			rec.ObserveGet(status, time.Since(t0))
 			return true
 		}
 		*writeBuf = proto.EncodeResponse(*writeBuf, proto.OpGet, 0, fr.Key, val)
+		rec.ObserveGet(status, time.Since(t0))
 		return true
 	case proto.OpSet:
 		if _, err := cache.Set(fr.Key, fr.Value); err != nil {
+			status = "err"
 			*writeBuf = proto.EncodeResponse(*writeBuf, proto.OpSet, 1, fr.Key, nil)
+			rec.ObserveSet(status, time.Since(t0))
 			return true
 		}
 		*writeBuf = proto.EncodeResponse(*writeBuf, proto.OpSet, 0, fr.Key, nil)
+		rec.ObserveSet(status, time.Since(t0))
 		return true
 	case proto.OpDel:
 		_ = cache.Delete(fr.Key)
 		*writeBuf = proto.EncodeResponse(*writeBuf, proto.OpDel, 0, fr.Key, nil)
+		rec.ObserveDel(status, time.Since(t0))
 		return true
 	}
 	return false

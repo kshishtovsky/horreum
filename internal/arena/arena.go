@@ -51,6 +51,10 @@ type region struct {
 	meta  []atomic.Int32
 }
 
+// Data returns the region's raw backing bytes.  Internal helper for
+// the persist layer (superblock, checkpoint writes).
+func (r *region) Data() []byte { return r.data }
+
 // newRegion creates a mmap'd region and initializes its allocator.
 func newRegion(size uint64) (*region, error) {
 	data, err := mmapRegion(size)
@@ -72,11 +76,24 @@ type Manager struct {
 	size       uint64
 	anon       bool
 	liveObjs   atomic.Uint64
+	// filePath is the backing file path when persistent; empty for
+	// anonymous arenas.  Set by OpenFileManager, never by NewManager.
+	filePath string
 }
 
 func (m *Manager) loadRegions() []*region {
 	return *m.regions.Load()
 }
+
+// Regions returns a snapshot of all regions.  Used by the persist
+// layer to access raw backing bytes for superblock and checkpoint
+// operations.
+func (m *Manager) Regions() []*region { return m.loadRegions() }
+
+// FilePath returns the backing file path if this manager was opened
+// in persistent mode, or "" for anonymous arenas.  Useful for the
+// persist layer to discover the WAL/checkpoint locations.
+func (m *Manager) FilePath() string { return m.filePath }
 
 func NewManager(regionSize uint64, persistent bool) (*Manager, error) {
 	m := &Manager{size: regionSize, anon: !persistent}
@@ -85,6 +102,39 @@ func NewManager(regionSize uint64, persistent bool) (*Manager, error) {
 		return nil, err
 	}
 	r.meta = make([]atomic.Int32, uint32(len(r.data))/alignBytes)
+	regions := []*region{r}
+	m.regions.Store(&regions)
+	m.current.Store(r)
+	m.currentIdx.Store(0)
+	return m, nil
+}
+
+// OpenFileManager opens (or creates) a persistent arena backed by the
+// file at path.  The file is memory-mapped with MAP_SHARED (on Linux)
+// so changes are visible across processes and survive crashes.
+//
+// create=true creates the file if it does not exist; if it does exist
+// it is opened and the existing contents are used for cold start.
+//
+// The returned Manager behaves identically to NewManager but is
+// backed by the file.  Callers should pair it with persist.New to
+// obtain a PersistentManager that adds WAL and checkpointing.
+func OpenFileManager(path string, regionSize uint64, create bool) (*Manager, error) {
+	if regionSize == 0 {
+		return nil, errors.New("arena: regionSize must be > 0")
+	}
+	data, err := mmapFileRegion(path, regionSize, create)
+	if err != nil {
+		return nil, err
+	}
+	r := &region{data: data}
+	r.alloc.Init(uint32(regionSize))
+	r.meta = make([]atomic.Int32, uint32(len(r.data))/alignBytes)
+	m := &Manager{
+		size:     regionSize,
+		anon:     false,
+		filePath: path,
+	}
 	regions := []*region{r}
 	m.regions.Store(&regions)
 	m.current.Store(r)
@@ -221,6 +271,19 @@ func (m *Manager) Stats() Stats {
 func (m *Manager) Sync() error {
 	for _, reg := range m.loadRegions() {
 		if err := syncRegion(reg.data); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// SyncAsync schedules dirty pages to be flushed.  It does not block
+// until the write completes (kernel decides when).  For persistent
+// arenas backed by MAP_SHARED this is the fastest way to ensure
+// durability without paying the full MS_SYNC cost.
+func (m *Manager) SyncAsync() error {
+	for _, reg := range m.loadRegions() {
+		if err := syncRegionAsync(reg.data); err != nil {
 			return err
 		}
 	}
@@ -391,12 +454,18 @@ func (m *Manager) ClearMetaBits(h Handle, mask uint16) {
 	}
 }
 
-// Queue tag constants stored in the high bits of Handle.Meta.
-// Bits 0-1 are the freq counter (managed by IncFreq/GetFreq/SetFreq).
-// Bits 2-3 encode the queue tag: 0 = none, 1 = S, 2 = M.
+// Handle.Meta bit layout:
+//
+//	Bits 0-1: freq counter (managed by IncFreq/GetFreq/SetFreq).
+//	Bits 2-3: queue tag: 0 = none, 1 = S, 2 = M.
+//	Bit  4:   compressed flag — set when the stored value is LZ4-compressed.
+//	Bit  5:   encrypted flag — set when the stored value is AES-encrypted.
+//	Bits 6-15: reserved.
 const (
-	QueueTagMask = uint16(0x3 << 2)
-	QueueTagNone = uint16(0x0 << 2)
-	QueueTagS    = uint16(0x1 << 2)
-	QueueTagM    = uint16(0x2 << 2)
+	QueueTagMask   = uint16(0x3 << 2)
+	QueueTagNone   = uint16(0x0 << 2)
+	QueueTagS      = uint16(0x1 << 2)
+	QueueTagM      = uint16(0x2 << 2)
+	CompressedFlag = uint16(1 << 4)
+	EncryptedFlag  = uint16(1 << 5)
 )

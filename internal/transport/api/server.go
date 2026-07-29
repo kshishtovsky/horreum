@@ -27,6 +27,9 @@ type Options struct {
 	// directly; the higher-level transport.NewServer creates a router
 	// automatically.
 	Router ShardRouter
+	// Recorder receives per-op latency and counter observations.
+	// May be nil; in that case observations are skipped.
+	Recorder Recorder
 	// TLSCertFile / TLSKeyFile are required for QUIC.
 	TLSCertFile string
 	TLSKeyFile  string

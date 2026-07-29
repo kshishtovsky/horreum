@@ -1,0 +1,64 @@
+# Horreum Configuration File
+# Default values align with built-in server defaults.
+
+server:
+  # Listen address for the cache server (host:port).
+  addr: ":7373"
+
+  # Network transport protocol: "tcp" or "quic".
+  # Note: "quic" requires TLS certificates configured below.
+  transport: "tcp"
+
+  # Number of shared-nothing database shards.
+  # If omitted or set to 0, defaults to: 4 * NumCPU (clamped between 4 and 64).
+  shards: 4
+
+  # Memory-mapped arena region size per database shard.
+  # Supports units: B, KB, MB, GB, KiB, MiB, GiB.
+  region_size: "256MiB"
+
+  # S3-FIFO eviction capacity (number of items) per database shard.
+  evict_capacity: 4096
+
+  # TLS Certificate files (required only if transport is "quic").
+  tls_cert: ""
+  tls_key: ""
+
+  # Max duration to wait for active connections to drain on shutdown.
+  shutdown_timeout: "30s"
+
+storage:
+  # Path to the directory for persistent storage (e.g. "/var/lib/horreum").
+  # If empty, the server runs in anonymous in-memory mode.
+  persistent_path: ""
+
+  # If true, fsyncs the WAL (Write-Ahead Log) after every write operation
+  # to guarantee disk persistence (valid only in persistent mode).
+  durable: true
+
+metrics:
+  # Listen address for Prometheus metrics endpoint (host:port/metrics).
+  addr: ":9090"
+
+compression:
+  # Value compression algorithm: "none" (disabled) or "lz4".
+  algorithm: "none"
+
+  # Minimum payload size in bytes to trigger LZ4 compression.
+  min_size: 64
+
+logging:
+  # Logging level: debug, info, warn, error.
+  level: "info"
+
+  # Logging format: text or json.
+  format: "text"
+
+  # Operations slower than this threshold will trigger slow log Warn messages.
+  slow_log_threshold: "10ms"
+
+security:
+  # Path to the 32-byte encryption key file.
+  # If configured, AES-256-GCM encryption is enabled for all values.
+  # Alternatively, you can set the HORREUM_KEY environment variable.
+  encryption_key_path: ""

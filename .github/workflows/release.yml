@@ -21,7 +21,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.25'
+          go-version-file: go.mod
 
       - name: Cross-Compile Binaries
         run: |
@@ -33,17 +33,22 @@ jobs:
             "linux/arm64/linux-arm64"
             "darwin/amd64/darwin-amd64"
             "darwin/arm64/darwin-arm64"
+            "windows/amd64/windows-amd64"
           )
 
           for entry in "${targets[@]}"; do
             IFS="/" read -r goos goarch suffix <<< "$entry"
             echo "→ Building ${goos}/${goarch}..."
+            bin_name="horreum"
+            if [ "$goos" = "windows" ]; then
+              bin_name="horreum.exe"
+            fi
             CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" \
               go build -ldflags="-s -w" \
-              -o "dist/staging/aqueduct-broker" ./cmd/broker
-            tar -czf "dist/aqueduct-${VERSION}-${suffix}.tar.gz" \
-              -C dist/staging aqueduct-broker
-            rm dist/staging/aqueduct-broker
+              -o "dist/staging/${bin_name}" ./cmd/horreum
+            tar -czf "dist/horreum-${VERSION}-${suffix}.tar.gz" \
+              -C dist "staging/${bin_name}"
+            rm "dist/staging/${bin_name}"
           done
 
           rmdir dist/staging
@@ -60,16 +65,19 @@ jobs:
           echo "Previous tag: $PREV"
 
       - name: Generate Release Body
-        id: release_notes
         run: |
-          VERSION="${GITHUB_REF#refs/tags/}"
-          PREVIOUS_TAG="${{ steps.prevtag.outputs.tag }}"
-          bash .github/scripts/release-body.sh "$VERSION" "$PREVIOUS_TAG" dist
-          echo "path=release_body.md" >> "$GITHUB_OUTPUT"
+          chmod +x .github/scripts/release-body.sh
+          .github/scripts/release-body.sh \
+            "${GITHUB_REF#refs/tags/}" \
+            "${{ steps.prevtag.outputs.tag }}" \
+            dist
 
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@be72d2e152a185f1b5b5a87ae1cbb44664a8145e # action-gh-release v2.3.1
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ github.ref_name }}
+          name: Horreum ${{ github.ref_name }}
+          body_path: release-body.md
           files: dist/*.tar.gz
-          body_path: ${{ steps.release_notes.outputs.path }}
-          fail_on_unmatched_files: true
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-rc') || contains(github.ref_name, '-beta') }}

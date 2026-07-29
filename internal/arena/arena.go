@@ -11,6 +11,44 @@ import (
 // MaxObjectSize is the maximum payload size for a single Put.
 const MaxObjectSize = 64 << 20 // 64 MiB
 
+// persistSuperblockBytes matches internal/arena/persist.superblockSize.
+const persistSuperblockBytes = 4096
+
+// persistReservedBytes returns the prefix of a file-backed arena
+// reserved for the persist layer's superblock and checkpoint region.
+// Arena allocations skip past this prefix so Put handles never
+// collide with persist-managed bytes.
+//
+// Layout (file-backed only):
+//
+//	[0 .. reserved)               superblock + checkpoint region
+//	[reserved .. regionSize)      arena objects (Put handles)
+//
+// The total is persistSuperblockBytes + checkpointRegionBytes for
+// the given regionSize (mirrors internal/arena/persist.checkpointMaxSize).
+// The result is capped at half the region so callers using small
+// regions (e.g. 1 MiB arenas without persist) still have room to
+// allocate.  When the cap kicks in the persist layer's checkpoint
+// region is no longer fully reserved — that is the caller's
+// responsibility to enforce, but persist is only used with regions
+// large enough to skip the cap in practice.
+func persistReservedBytes(regionSize uint64) uint32 {
+	const checkpointCap = 1 << 20 // 1 MiB
+	ck := regionSize / 8
+	if ck > checkpointCap {
+		ck = checkpointCap
+	}
+	if ck < persistSuperblockBytes {
+		ck = persistSuperblockBytes
+	}
+	reserved := uint64(persistSuperblockBytes) + ck
+	cap := regionSize / 2
+	if reserved > cap {
+		reserved = cap
+	}
+	return uint32(reserved)
+}
+
 var (
 	// ErrArenaFull is returned when all regions are exhausted and a new
 	// region cannot be allocated (e.g. OS limit).
@@ -43,10 +81,17 @@ type Stats struct {
 }
 
 // region is a single mmap'd allocation with its own allocator.
+// meta is a parallel slice of atomic counters indexed by offset/alignBytes.
+// It is allocated lazily on first Put to the region.
 type region struct {
-	data []byte
+	data  []byte
 	alloc Allocator
+	meta  []atomic.Int32
 }
+
+// Data returns the region's raw backing bytes.  Internal helper for
+// the persist layer (superblock, checkpoint writes).
+func (r *region) Data() []byte { return r.data }
 
 // newRegion creates a mmap'd region and initializes its allocator.
 func newRegion(size uint64) (*region, error) {
@@ -69,24 +114,69 @@ type Manager struct {
 	size       uint64
 	anon       bool
 	liveObjs   atomic.Uint64
+	// filePath is the backing file path when persistent; empty for
+	// anonymous arenas.  Set by OpenFileManager, never by NewManager.
+	filePath string
 }
 
-// loadRegions returns the current immutable snapshot of the regions slice.
 func (m *Manager) loadRegions() []*region {
 	return *m.regions.Load()
 }
 
-// NewManager creates an arena Manager with the given region size.
-// If persistent is true, the mmap is file-backed (future use);
-// otherwise MAP_ANON is used.
+// Regions returns a snapshot of all regions.  Used by the persist
+// layer to access raw backing bytes for superblock and checkpoint
+// operations.
+func (m *Manager) Regions() []*region { return m.loadRegions() }
+
+// FilePath returns the backing file path if this manager was opened
+// in persistent mode, or "" for anonymous arenas.  Useful for the
+// persist layer to discover the WAL/checkpoint locations.
+func (m *Manager) FilePath() string { return m.filePath }
+
 func NewManager(regionSize uint64, persistent bool) (*Manager, error) {
-	m := &Manager{
-		size: regionSize,
-		anon: !persistent,
-	}
+	m := &Manager{size: regionSize, anon: !persistent}
 	r, err := newRegion(regionSize)
 	if err != nil {
 		return nil, err
+	}
+	r.meta = make([]atomic.Int32, uint32(len(r.data))/alignBytes)
+	regions := []*region{r}
+	m.regions.Store(&regions)
+	m.current.Store(r)
+	m.currentIdx.Store(0)
+	return m, nil
+}
+
+// OpenFileManager opens (or creates) a persistent arena backed by the
+// file at path.  The file is memory-mapped with MAP_SHARED (on Linux)
+// so changes are visible across processes and survive crashes.
+//
+// create=true creates the file if it does not exist; if it does exist
+// it is opened and the existing contents are used for cold start.
+//
+// The returned Manager behaves identically to NewManager but is
+// backed by the file.  Callers should pair it with persist.New to
+// obtain a PersistentManager that adds WAL and checkpointing.
+func OpenFileManager(path string, regionSize uint64, create bool) (*Manager, error) {
+	if regionSize == 0 {
+		return nil, errors.New("arena: regionSize must be > 0")
+	}
+	data, err := mmapFileRegion(path, regionSize, create)
+	if err != nil {
+		return nil, err
+	}
+	r := &region{data: data}
+	r.alloc.Init(uint32(regionSize))
+	// Reserve the persist-managed prefix (superblock + checkpoint
+	// region) so handle-allocating Puts cannot overwrite it.  We
+	// apply the skip on both create=true and create=false so reopened
+	// managers continue to honour the same layout.
+	r.alloc.Skip(persistReservedBytes(regionSize))
+	r.meta = make([]atomic.Int32, uint32(len(r.data))/alignBytes)
+	m := &Manager{
+		size:     regionSize,
+		anon:     false,
+		filePath: path,
 	}
 	regions := []*region{r}
 	m.regions.Store(&regions)
@@ -95,77 +185,84 @@ func NewManager(regionSize uint64, persistent bool) (*Manager, error) {
 	return m, nil
 }
 
-// Put stores value in the arena and returns a Handle.
-// Zero heap allocations on the hot path.
+// EnsureMeta lazily allocates the meta slice for the given region.
+// Idempotent. Acquires m.mu briefly.
+func (m *Manager) EnsureMeta(regionIdx uint8) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.ensureMetaLocked(uint32(regionIdx))
+}
+
+// ensureMetaLocked allocates reg.meta if absent. Caller MUST hold m.mu.
+func (m *Manager) ensureMetaLocked(regionIdx uint32) {
+	regions := m.loadRegions()
+	if int(regionIdx) >= len(regions) {
+		return
+	}
+	reg := regions[regionIdx]
+	if reg.meta != nil {
+		return
+	}
+	reg.meta = make([]atomic.Int32, uint32(len(reg.data))/alignBytes)
+}
+
 func (m *Manager) Put(value []byte) (Handle, error) {
 	n := uint32(len(value))
 	if n > MaxObjectSize {
 		return Handle{}, ErrSizeTooLarge
 	}
-
-	// Fast path: try current region without taking manager lock.
-	// SAFETY: current is an atomic pointer; Load() returns a consistent snapshot.
 	idx := m.currentIdx.Load()
 	reg := m.current.Load()
 	offset, err := reg.alloc.Alloc(n)
 	if err == nil {
-		// SAFETY: reg.data[offset:offset+n] is within mmap'd region bounds.
-		// offset was validated by Alloc; n is the requested size.
 		copy(reg.data[offset:offset+n], value)
 		m.liveObjs.Add(1)
+		m.EnsureMeta(uint8(idx))
+		reg.meta[offset/alignBytes].Store(0)
 		return Handle{Offset: offset, Size: n, Region: uint8(idx)}, nil
 	}
-
-	// Slow path: rotate to a new region.
 	return m.putSlow(value, n)
 }
 
 func (m *Manager) putSlow(value []byte, n uint32) (Handle, error) {
 	m.mu.Lock()
-	// Double-check: another goroutine may have rotated already.
+	defer m.mu.Unlock()
 	reg := m.current.Load()
 	offset, err := reg.alloc.Alloc(n)
 	if err == nil {
 		idx := m.currentIdx.Load()
-		m.mu.Unlock()
 		copy(reg.data[offset:offset+n], value)
 		m.liveObjs.Add(1)
+		m.ensureMetaLocked(idx)
+		reg.meta[offset/alignBytes].Store(0)
 		return Handle{Offset: offset, Size: n, Region: uint8(idx)}, nil
 	}
-
-	// Allocate a new region.
 	old := m.loadRegions()
 	newIdx := uint32(len(old))
 	if newIdx >= 256 {
-		m.mu.Unlock()
 		return Handle{}, ErrArenaFull
 	}
 	r, err := newRegion(m.size)
 	if err != nil {
-		m.mu.Unlock()
 		return Handle{}, err
 	}
-	// Publish new regions slice atomically (copy-on-write).
+	r.meta = make([]atomic.Int32, uint32(len(r.data))/alignBytes)
 	newRegions := make([]*region, len(old)+1)
 	copy(newRegions, old)
 	newRegions[len(old)] = r
 	m.regions.Store(&newRegions)
 	m.current.Store(r)
 	m.currentIdx.Store(newIdx)
-	m.mu.Unlock()
-
-	// Allocate from the new region.
 	offset, err = r.alloc.Alloc(n)
 	if err != nil {
 		return Handle{}, err
 	}
 	copy(r.data[offset:offset+n], value)
 	m.liveObjs.Add(1)
+	r.meta[offset/alignBytes].Store(0)
 	return Handle{Offset: offset, Size: n, Region: uint8(newIdx)}, nil
 }
 
-// View returns a zero-copy slice backed by the mmap'd region.
-// The slice is valid until Manager.Close().
 func (m *Manager) View(h Handle) ([]byte, error) {
 	regions := m.loadRegions()
 	if int(h.Region) >= len(regions) {
@@ -176,13 +273,9 @@ func (m *Manager) View(h Handle) ([]byte, error) {
 	if end > uint64(len(reg.data)) {
 		return nil, ErrOffsetInvalid
 	}
-	// SAFETY: &reg.data[h.Offset] points into mmap'd memory.
-	// h.Size is validated against region bounds.
-	// The returned slice header lives on stack; backing store is mmap.
 	return unsafeView(reg.data, h.Offset, h.Size), nil
 }
 
-// Free marks a Handle's space as reusable.
 func (m *Manager) Free(h Handle) error {
 	regions := m.loadRegions()
 	if int(h.Region) >= len(regions) {
@@ -194,28 +287,29 @@ func (m *Manager) Free(h Handle) error {
 		return ErrOffsetInvalid
 	}
 	reg.alloc.Free(h.Offset, h.Size)
-	m.liveObjs.Add(^uint64(0) - 0) // atomic decrement
+	m.liveObjs.Add(^uint64(0))
 	return nil
 }
 
-// Stats returns current arena utilization.
 func (m *Manager) Stats() Stats {
 	var s Stats
 	s.LiveObjects = m.liveObjs.Load()
-	regions := m.loadRegions()
-	for _, reg := range regions {
+	for _, reg := range m.loadRegions() {
 		rs := reg.alloc.Stats()
 		s.UsedBytes += rs.UsedBytes
 		s.FreeBytes += rs.FreeBytes
 		s.FreelistLen += rs.FreelistLen
 	}
-	// Fragmentation: 1 - maxContiguousFree / totalFree.
-	// For a bump allocator, the bump tail is always the largest
-	// contiguous free block. The freelists add non-contiguous free space.
+	// Subtract the persist-managed prefix so Stats.UsedBytes reports
+	// only object bytes — the prefix is reserved for the superblock
+	// and checkpoint region and is not a real object allocation.
+	if m.filePath != "" {
+		s.UsedBytes -= uint64(persistReservedBytes(m.size))
+	}
 	totalFree := s.FreeBytes
 	if totalFree > 0 {
 		var bumpTail uint64
-		for _, reg := range regions {
+		for _, reg := range m.loadRegions() {
 			bumpTail += uint64(reg.alloc.size) - reg.alloc.offset.Load()
 		}
 		s.Fragmentation = 1.0 - float64(bumpTail)/float64(totalFree)
@@ -223,7 +317,26 @@ func (m *Manager) Stats() Stats {
 	return s
 }
 
-// Sync flushes dirty pages. No-op for MAP_ANON.
+// SetLiveObjects replaces the in-memory live-object counter.  Used
+// by the persist layer after a cold start to reconcile the count
+// with the reconstructed HashIndex, since arena.Manager does not
+// persist liveObjs across processes.
+func (m *Manager) SetLiveObjects(n uint64) {
+	m.liveObjs.Store(n)
+}
+
+// SetUsedBytes tells the manager that bytes are occupied by objects
+// restored from disk.  Persist calls this after a cold-start so
+// Stats reports the correct utilisation.  The persist-managed
+// prefix (superblock + checkpoint region) is added automatically.
+func (m *Manager) SetUsedBytes(n uint64) {
+	regions := m.loadRegions()
+	if len(regions) == 0 {
+		return
+	}
+	regions[0].alloc.offset.Store(n + uint64(persistReservedBytes(m.size)))
+}
+
 func (m *Manager) Sync() error {
 	for _, reg := range m.loadRegions() {
 		if err := syncRegion(reg.data); err != nil {
@@ -233,7 +346,19 @@ func (m *Manager) Sync() error {
 	return nil
 }
 
-// Close unmaps all regions and releases resources.
+// SyncAsync schedules dirty pages to be flushed.  It does not block
+// until the write completes (kernel decides when).  For persistent
+// arenas backed by MAP_SHARED this is the fastest way to ensure
+// durability without paying the full MS_SYNC cost.
+func (m *Manager) SyncAsync() error {
+	for _, reg := range m.loadRegions() {
+		if err := syncRegionAsync(reg.data); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (m *Manager) Close() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -248,3 +373,192 @@ func (m *Manager) Close() error {
 	m.regions.Store(&empty)
 	return firstErr
 }
+
+// IncFreq atomically increments the 2-bit frequency counter for the handle.
+// Preserves the upper bits (queue tag etc.). Returns the new freq masked
+// to 0..3. Lock-free hot path.
+func (m *Manager) IncFreq(h Handle) uint16 {
+	regions := m.loadRegions()
+	if int(h.Region) >= len(regions) {
+		return 0
+	}
+	reg := regions[h.Region]
+	if reg.meta == nil {
+		return 0
+	}
+	idx := h.Offset / alignBytes
+	if idx >= uint32(len(reg.meta)) {
+		return 0
+	}
+	const freqMask = int32(0x3)
+	for {
+		cur := reg.meta[idx].Load()
+		freq := cur & freqMask
+		nxt := (cur &^ freqMask) | ((freq + 1) & freqMask)
+		if reg.meta[idx].CompareAndSwap(cur, nxt) {
+			return uint16((freq + 1) & freqMask)
+		}
+	}
+}
+
+// GetFreq atomically reads the 2-bit frequency counter for the handle.
+func (m *Manager) GetFreq(h Handle) uint16 {
+	regions := m.loadRegions()
+	if int(h.Region) >= len(regions) {
+		return 0
+	}
+	reg := regions[h.Region]
+	if reg.meta == nil {
+		return 0
+	}
+	idx := h.Offset / alignBytes
+	if idx >= uint32(len(reg.meta)) {
+		return 0
+	}
+	return uint16(reg.meta[idx].Load() & 0x3)
+}
+
+// SetFreq atomically stores the freq counter (0..3) for the handle.
+// Preserves the upper bits (queue tag etc.).
+func (m *Manager) SetFreq(h Handle, freq uint16) {
+	regions := m.loadRegions()
+	if int(h.Region) >= len(regions) {
+		return
+	}
+	reg := regions[h.Region]
+	if reg.meta == nil {
+		return
+	}
+	idx := h.Offset / alignBytes
+	if idx >= uint32(len(reg.meta)) {
+		return
+	}
+	const freqMask = int32(0x3)
+	for {
+		cur := reg.meta[idx].Load()
+		nxt := (cur &^ freqMask) | (int32(freq) & freqMask)
+		if nxt == cur || reg.meta[idx].CompareAndSwap(cur, nxt) {
+			return
+		}
+	}
+}
+
+// SetMeta atomically stores the full 16-bit meta for a handle.
+func (m *Manager) SetMeta(h Handle, meta uint16) {
+	regions := m.loadRegions()
+	if int(h.Region) >= len(regions) {
+		return
+	}
+	reg := regions[h.Region]
+	if reg.meta == nil {
+		return
+	}
+	idx := h.Offset / alignBytes
+	if idx >= uint32(len(reg.meta)) {
+		return
+	}
+	reg.meta[idx].Store(int32(meta))
+}
+
+// GetMeta atomically reads the full 16-bit meta for a handle.
+func (m *Manager) GetMeta(h Handle) uint16 {
+	regions := m.loadRegions()
+	if int(h.Region) >= len(regions) {
+		return 0
+	}
+	reg := regions[h.Region]
+	if reg.meta == nil {
+		return 0
+	}
+	idx := h.Offset / alignBytes
+	if idx >= uint32(len(reg.meta)) {
+		return 0
+	}
+	return uint16(reg.meta[idx].Load())
+}
+
+// CASMeta performs an atomic compare-and-swap on the meta field.
+// Returns true if the swap succeeded.
+func (m *Manager) CASMeta(h Handle, oldMeta, newMeta uint16) bool {
+	regions := m.loadRegions()
+	if int(h.Region) >= len(regions) {
+		return false
+	}
+	reg := regions[h.Region]
+	if reg.meta == nil {
+		return false
+	}
+	idx := h.Offset / alignBytes
+	if idx >= uint32(len(reg.meta)) {
+		return false
+	}
+	return reg.meta[idx].CompareAndSwap(int32(oldMeta), int32(newMeta))
+}
+
+// OrMetaBits atomically ORs the given bits into the meta field via CAS loop.
+func (m *Manager) OrMetaBits(h Handle, bits uint16) {
+	regions := m.loadRegions()
+	if int(h.Region) >= len(regions) {
+		return
+	}
+	reg := regions[h.Region]
+	if reg.meta == nil {
+		return
+	}
+	idx := h.Offset / alignBytes
+	if idx >= uint32(len(reg.meta)) {
+		return
+	}
+	for {
+		current := uint16(reg.meta[idx].Load())
+		newVal := current | bits
+		if newVal == current {
+			return
+		}
+		if reg.meta[idx].CompareAndSwap(int32(current), int32(newVal)) {
+			return
+		}
+	}
+}
+
+// ClearMetaBits atomically clears the given bits from the meta field via CAS loop.
+func (m *Manager) ClearMetaBits(h Handle, mask uint16) {
+	regions := m.loadRegions()
+	if int(h.Region) >= len(regions) {
+		return
+	}
+	reg := regions[h.Region]
+	if reg.meta == nil {
+		return
+	}
+	idx := h.Offset / alignBytes
+	if idx >= uint32(len(reg.meta)) {
+		return
+	}
+	for {
+		current := uint16(reg.meta[idx].Load())
+		newVal := current &^ mask
+		if newVal == current {
+			return
+		}
+		if reg.meta[idx].CompareAndSwap(int32(current), int32(newVal)) {
+			return
+		}
+	}
+}
+
+// Handle.Meta bit layout:
+//
+//	Bits 0-1: freq counter (managed by IncFreq/GetFreq/SetFreq).
+//	Bits 2-3: queue tag: 0 = none, 1 = S, 2 = M.
+//	Bit  4:   compressed flag — set when the stored value is LZ4-compressed.
+//	Bit  5:   encrypted flag — set when the stored value is AES-encrypted.
+//	Bits 6-15: reserved.
+const (
+	QueueTagMask   = uint16(0x3 << 2)
+	QueueTagNone   = uint16(0x0 << 2)
+	QueueTagS      = uint16(0x1 << 2)
+	QueueTagM      = uint16(0x2 << 2)
+	CompressedFlag = uint16(1 << 4)
+	EncryptedFlag  = uint16(1 << 5)
+)

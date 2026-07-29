@@ -77,7 +77,7 @@ jobs:
 
       - name: Run Benchmarks
         run: |
-          go test -bench=. -benchmem -count=5 -timeout=20m ./internal/arena/... ./internal/index/... | tee bench.txt
+          go test -bench=. -benchmem -count=1 -timeout=20m ./internal/arena/... ./internal/index/... | tee bench.txt
 
       - name: Upload benchmark results
         uses: actions/upload-artifact@v4

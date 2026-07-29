@@ -1,8 +1,16 @@
-# Horreum ⚡
+<p align="center">
+  <img src="docs/repo_image.png" alt="Horreum Banner" width="600"/>
+</p>
 
-> Ultra-fast, zero-allocation, authenticated in-memory & persistent cache service written in pure Go.
+<h1 align="center">Horreum ⚡</h1>
 
-[English](README.md) | [Русский](README.ru.md) | [中文](README.zh.md)
+<p align="center">
+  <i>Ultra-fast, zero-allocation, authenticated in-memory & persistent cache service written in pure Go.</i>
+</p>
+
+<p align="center">
+  <a href="README.md">English</a> | <a href="README.ru.md">Русский</a> | <a href="README.zh.md">中文</a>
+</p>
 
 ---
 
@@ -108,7 +116,7 @@ For comprehensive guides and architecture details, refer to the [`docs/`](file:/
 - [Getting Started Guide](file:///e:/pet/horreum/docs/getting-started.md) — Detailed setup, client usage, and Docker deployment.
 - [Configuration Reference](file:///e:/pet/horreum/docs/configuration.md) — Full `config.yaml` and CLI flag specifications.
 - [Protocol Specification](file:///e:/pet/horreum/docs/protocol.md) — 10-byte binary frame specification.
-- [Architecture Deep Dive](file:///e:/pet/horreum/ARCHITECTURE.md) — Memory layout, concurrency, and persistence design.
+- [Architecture Deep Dive](file:///e:/pet/horreum/docs/architecture.md) — Memory layout, concurrency, and persistence design.
 
 ---
 

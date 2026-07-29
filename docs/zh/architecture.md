@@ -1,6 +1,6 @@
 # Horreum 架构与设计规范 🏛️
 
-[English](ARCHITECTURE.md) | [Русский](ARCHITECTURE.ru.md) | [中文](ARCHITECTURE.zh.md)
+[English](../architecture.md) | [Русский](../ru/architecture.md) | [中文](architecture.md)
 
 ---
 

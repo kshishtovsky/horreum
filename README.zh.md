@@ -1,8 +1,16 @@
-# Horreum ⚡
+<p align="center">
+  <img src="docs/repo_image.png" alt="Horreum Banner" width="600"/>
+</p>
 
-> 基于纯 Go 编写的极速、零内存分配、具备安全加密与持久化支持的内存缓存服务。
+<h1 align="center">Horreum ⚡</h1>
 
-[English](README.md) | [Русский](README.ru.md) | [中文](README.zh.md)
+<p align="center">
+  <i>基于纯 Go 编写的极速、零内存分配、具备安全加密与持久化支持的内存缓存服务。</i>
+</p>
+
+<p align="center">
+  <a href="README.md">English</a> | <a href="README.ru.md">Русский</a> | <a href="README.zh.md">中文</a>
+</p>
 
 ---
 
@@ -108,4 +116,4 @@ client.close()
 - [快速入门指南 (zh)](file:///e:/pet/horreum/docs/zh/getting-started.md)
 - [配置参考指南 (zh)](file:///e:/pet/horreum/docs/zh/configuration.md)
 - [网络协议规范 (zh)](file:///e:/pet/horreum/docs/zh/protocol.md)
-- [系统架构详解 (zh)](file:///e:/pet/horreum/ARCHITECTURE.zh.md)
+- [系统架构详解 (zh)](file:///e:/pet/horreum/docs/zh/architecture.md)

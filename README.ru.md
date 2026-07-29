@@ -1,8 +1,16 @@
-# Horreum ⚡
+<p align="center">
+  <img src="docs/repo_image.png" alt="Horreum Banner" width="600"/>
+</p>
 
-> Ультрабыстрый кеш-сервис с нулевыми аллокациями, шифрованием и поддержкой персистентности на чистом Go.
+<h1 align="center">Horreum ⚡</h1>
 
-[English](README.md) | [Русский](README.ru.md) | [中文](README.zh.md)
+<p align="center">
+  <i>Ультрабыстрый кеш-сервис с нулевыми аллокациями, шифрованием и поддержкой персистентности на чистом Go.</i>
+</p>
+
+<p align="center">
+  <a href="README.md">English</a> | <a href="README.ru.md">Русский</a> | <a href="README.zh.md">中文</a>
+</p>
 
 ---
 
@@ -108,4 +116,4 @@ client.close()
 - [Руководство по быстрому старту (ru)](file:///e:/pet/horreum/docs/ru/getting-started.md)
 - [Справочник конфигурации (ru)](file:///e:/pet/horreum/docs/ru/configuration.md)
 - [Спецификация протокола (ru)](file:///e:/pet/horreum/docs/ru/protocol.md)
-- [Обзор архитектуры (ru)](file:///e:/pet/horreum/ARCHITECTURE.ru.md)
+- [Обзор архитектуры (ru)](file:///e:/pet/horreum/docs/ru/architecture.md)

@@ -1,6 +1,6 @@
 # Спецификация Архитектуры Horreum 🏛️
 
-[English](ARCHITECTURE.md) | [Русский](ARCHITECTURE.ru.md) | [中文](ARCHITECTURE.zh.md)
+[English](../architecture.md) | [Русский](architecture.md) | [中文](../zh/architecture.md)
 
 ---
 

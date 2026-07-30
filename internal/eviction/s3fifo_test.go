@@ -6,8 +6,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/horreum/horreum/internal/arena"
-	"github.com/horreum/horreum/internal/eviction"
+	"github.com/kshishtovsky/horreum/internal/arena"
+	"github.com/kshishtovsky/horreum/internal/eviction"
 )
 
 func newTestManager(t *testing.T, size uint64) *arena.Manager {

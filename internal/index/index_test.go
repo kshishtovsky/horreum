@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/horreum/horreum/internal/arena"
+	"github.com/kshishtovsky/horreum/internal/arena"
 )
 
 func TestPutGet(t *testing.T) {

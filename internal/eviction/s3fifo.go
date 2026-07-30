@@ -23,7 +23,7 @@ package eviction
 import (
 	"sync"
 
-	"github.com/horreum/horreum/internal/arena"
+	"github.com/kshishtovsky/horreum/internal/arena"
 )
 
 // smallPct is the percentage of total capacity reserved for the S queue.

@@ -9,7 +9,7 @@ package eviction
 import (
 	"sync/atomic"
 
-	"github.com/horreum/horreum/internal/arena"
+	"github.com/kshishtovsky/horreum/internal/arena"
 )
 
 // noNext marks a slot with no successor in the inline linked list.

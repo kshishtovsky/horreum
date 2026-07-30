@@ -14,12 +14,12 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/horreum/horreum/internal/arena"
-	"github.com/horreum/horreum/internal/compress"
-	"github.com/horreum/horreum/internal/ds"
-	"github.com/horreum/horreum/internal/encrypt"
-	"github.com/horreum/horreum/internal/eviction"
-	"github.com/horreum/horreum/internal/transport/api"
+	"github.com/kshishtovsky/horreum/internal/arena"
+	"github.com/kshishtovsky/horreum/internal/compress"
+	"github.com/kshishtovsky/horreum/internal/ds"
+	"github.com/kshishtovsky/horreum/internal/encrypt"
+	"github.com/kshishtovsky/horreum/internal/eviction"
+	"github.com/kshishtovsky/horreum/internal/transport/api"
 )
 
 // Public type aliases so callers can use transport.CacheService

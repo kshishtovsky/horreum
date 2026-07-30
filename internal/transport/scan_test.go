@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/horreum/horreum/internal/compress"
-	"github.com/horreum/horreum/internal/encrypt"
+	"github.com/kshishtovsky/horreum/internal/compress"
+	"github.com/kshishtovsky/horreum/internal/encrypt"
 )
 
 func TestScanAndDelPrefix(t *testing.T) {

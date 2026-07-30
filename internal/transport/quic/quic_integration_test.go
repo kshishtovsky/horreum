@@ -20,7 +20,7 @@ import (
 
 	qerr "github.com/quic-go/quic-go"
 
-	"github.com/horreum/horreum/internal/proto"
+	"github.com/kshishtovsky/horreum/internal/proto"
 )
 
 func genCert(t *testing.T) *tls.Certificate {

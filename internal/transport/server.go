@@ -8,7 +8,7 @@ import (
 	"errors"
 	"net"
 
-	"github.com/horreum/horreum/internal/transport/api"
+	"github.com/kshishtovsky/horreum/internal/transport/api"
 )
 
 // Server is a wrapper around api.Server that owns a default ShardSet.

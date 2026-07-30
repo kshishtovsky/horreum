@@ -38,7 +38,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/horreum/horreum/internal/logger"
+	"github.com/kshishtovsky/horreum/internal/logger"
 )
 
 // WAL record op codes.

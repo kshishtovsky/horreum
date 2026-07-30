@@ -13,10 +13,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/horreum/horreum/internal/arena"
-	"github.com/horreum/horreum/internal/compress"
-	"github.com/horreum/horreum/internal/encrypt"
-	"github.com/horreum/horreum/internal/transport"
+	"github.com/kshishtovsky/horreum/internal/arena"
+	"github.com/kshishtovsky/horreum/internal/compress"
+	"github.com/kshishtovsky/horreum/internal/encrypt"
+	"github.com/kshishtovsky/horreum/internal/transport"
 )
 
 // TestShardSetBasic exercises the happy path: NewShardSet + CacheFor +

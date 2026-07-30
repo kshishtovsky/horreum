@@ -23,12 +23,12 @@ import (
 
 	qerr "github.com/quic-go/quic-go"
 
-	"github.com/horreum/horreum/internal/compress"
-	"github.com/horreum/horreum/internal/encrypt"
-	"github.com/horreum/horreum/internal/proto"
-	"github.com/horreum/horreum/internal/transport"
-	tpquic "github.com/horreum/horreum/internal/transport/quic"
-	tptransport "github.com/horreum/horreum/internal/transport/tcp"
+	"github.com/kshishtovsky/horreum/internal/compress"
+	"github.com/kshishtovsky/horreum/internal/encrypt"
+	"github.com/kshishtovsky/horreum/internal/proto"
+	"github.com/kshishtovsky/horreum/internal/transport"
+	tpquic "github.com/kshishtovsky/horreum/internal/transport/quic"
+	tptransport "github.com/kshishtovsky/horreum/internal/transport/tcp"
 )
 
 func mustListen(t *testing.T, name string) *transport.Server {

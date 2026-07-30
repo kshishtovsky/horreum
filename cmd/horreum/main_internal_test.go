@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/horreum/horreum/internal/arena"
-	"github.com/horreum/horreum/internal/config"
-	"github.com/horreum/horreum/internal/transport"
+	"github.com/kshishtovsky/horreum/internal/arena"
+	"github.com/kshishtovsky/horreum/internal/config"
+	"github.com/kshishtovsky/horreum/internal/transport"
 )
 
 func TestDefaultServerConfig(t *testing.T) {

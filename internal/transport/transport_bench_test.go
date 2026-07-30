@@ -17,9 +17,9 @@ import (
 
 	qerr "github.com/quic-go/quic-go"
 
-	"github.com/horreum/horreum/internal/proto"
-	"github.com/horreum/horreum/internal/transport"
-	tpquic "github.com/horreum/horreum/internal/transport/quic"
+	"github.com/kshishtovsky/horreum/internal/proto"
+	"github.com/kshishtovsky/horreum/internal/transport"
+	tpquic "github.com/kshishtovsky/horreum/internal/transport/quic"
 )
 
 // makeKey returns a deterministic 16-byte key for op i.

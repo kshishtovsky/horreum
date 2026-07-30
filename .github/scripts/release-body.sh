@@ -44,8 +44,8 @@ fi
   echo "# 🚀 Horreum ${VERSION}"
   echo
   echo "> **Arena allocator + mmap storage engine for Go.**"
-  echo "> [GitHub](https://github.com/horreum/horreum) ·"
-  echo "> [Benchmarks](https://github.com/horreum/horreum#benchmarking)"
+  echo "> [GitHub](https://github.com/kshishtovsky/horreum) ·"
+  echo "> [Benchmarks](https://github.com/kshishtovsky/horreum#benchmarking)"
   echo
   echo "---"
   echo
@@ -66,7 +66,7 @@ fi
   if [ -d "$DIST_DIR" ]; then
     echo "| OS | Architecture | Download |"
     echo "|:---|:-------------|:---------|"
-    BASE_URL="https://github.com/horreum/horreum/releases/download/${VERSION}"
+    BASE_URL="https://github.com/kshishtovsky/horreum/releases/download/${VERSION}"
 
     for FILE in "$DIST_DIR"/*.tar.gz; do
       [ -f "$FILE" ] || continue
@@ -91,7 +91,7 @@ fi
   echo
   echo '```bash'
   echo "# Linux/macOS (amd64/arm64)"
-  echo "curl -LO https://github.com/horreum/horreum/releases/download/${VERSION}/horreum-${VERSION}-linux-amd64.tar.gz"
+  echo "curl -LO https://github.com/kshishtovsky/horreum/releases/download/${VERSION}/horreum-${VERSION}-linux-amd64.tar.gz"
   echo "tar xzf horreum-${VERSION}-linux-amd64.tar.gz"
   echo "sudo mv horreum /usr/local/bin/horreum"
   echo '```'

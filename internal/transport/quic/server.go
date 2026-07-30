@@ -22,10 +22,10 @@ import (
 
 	"github.com/quic-go/quic-go"
 
-	"github.com/horreum/horreum/internal/logger"
-	"github.com/horreum/horreum/internal/proto"
-	"github.com/horreum/horreum/internal/transport"
-	"github.com/horreum/horreum/internal/transport/api"
+	"github.com/kshishtovsky/horreum/internal/logger"
+	"github.com/kshishtovsky/horreum/internal/proto"
+	"github.com/kshishtovsky/horreum/internal/transport"
+	"github.com/kshishtovsky/horreum/internal/transport/api"
 )
 
 // noopRecorder is used when api.Options.Recorder is nil.

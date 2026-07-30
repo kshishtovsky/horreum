@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/horreum/horreum/internal/proto"
-	"github.com/horreum/horreum/internal/transport/api"
+	"github.com/kshishtovsky/horreum/internal/proto"
+	"github.com/kshishtovsky/horreum/internal/transport/api"
 )
 
 type mockCache struct{}

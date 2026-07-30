@@ -20,7 +20,7 @@ For QUIC, you also need TLS certificates (self-signed is fine for testing).
 ### 2.1 From Source
 
 ```bash
-git clone https://github.com/horreum/horreum.git
+git clone https://github.com/kshishtovsky/horreum.git
 cd horreum
 go build -o horreum ./cmd/horreum
 go build -o horreum-bench ./cmd/horreum-bench
@@ -190,7 +190,7 @@ package main
 
 import (
     "fmt"
-    "github.com/horreum/horreum/examples/client"
+    "github.com/kshishtovsky/horreum/examples/client"
 )
 
 func main() {

@@ -5,7 +5,7 @@ package index
 import (
 	"bytes"
 
-	"github.com/horreum/horreum/internal/arena"
+	"github.com/kshishtovsky/horreum/internal/arena"
 )
 
 // Entry is a 24-byte key-value pair stored in the hash table.

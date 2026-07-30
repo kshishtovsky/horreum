@@ -245,16 +245,98 @@ func (m *mockCache) SIsMember(key, member []byte) (bool, error) { return false, 
 func (m *mockCache) SMembers(key []byte) ([][]byte, error) { return nil, nil }
 
 
-func (e *errorCache) HSet(key, field, value []byte) (bool, error) { return false, nil }
-func (e *errorCache) HGet(key, field []byte) ([]byte, error) { return nil, nil }
-func (e *errorCache) HDel(key, field []byte) (bool, error) { return false, nil }
-func (e *errorCache) HGetAll(key []byte) ([][]byte, [][]byte, error) { return nil, nil, nil }
-func (e *errorCache) LPush(key, elem []byte) (uint32, error) { return 0, nil }
-func (e *errorCache) LPop(key []byte) ([]byte, error) { return nil, nil }
-func (e *errorCache) RPush(key, elem []byte) (uint32, error) { return 0, nil }
-func (e *errorCache) RPop(key []byte) ([]byte, error) { return nil, nil }
-func (e *errorCache) LLen(key []byte) (uint32, error) { return 0, nil }
-func (e *errorCache) SAdd(key, member []byte) (bool, error) { return false, nil }
-func (e *errorCache) SRem(key, member []byte) (bool, error) { return false, nil }
-func (e *errorCache) SIsMember(key, member []byte) (bool, error) { return false, nil }
-func (e *errorCache) SMembers(key []byte) ([][]byte, error) { return nil, nil }
+func (e *errorCache) HSet(key, field, value []byte) (bool, error) { return false, errors.New("err") }
+func (e *errorCache) HGet(key, field []byte) ([]byte, error) { return nil, errors.New("err") }
+func (e *errorCache) HDel(key, field []byte) (bool, error) { return false, errors.New("err") }
+func (e *errorCache) HGetAll(key []byte) ([][]byte, [][]byte, error) { return nil, nil, errors.New("err") }
+func (e *errorCache) LPush(key, elem []byte) (uint32, error) { return 0, errors.New("err") }
+func (e *errorCache) LPop(key []byte) ([]byte, error) { return nil, errors.New("err") }
+func (e *errorCache) RPush(key, elem []byte) (uint32, error) { return 0, errors.New("err") }
+func (e *errorCache) RPop(key []byte) ([]byte, error) { return nil, errors.New("err") }
+func (e *errorCache) LLen(key []byte) (uint32, error) { return 0, errors.New("err") }
+func (e *errorCache) SAdd(key, member []byte) (bool, error) { return false, errors.New("err") }
+func (e *errorCache) SRem(key, member []byte) (bool, error) { return false, errors.New("err") }
+func (e *errorCache) SIsMember(key, member []byte) (bool, error) { return false, errors.New("err") }
+func (e *errorCache) SMembers(key []byte) ([][]byte, error) { return nil, errors.New("err") }
+
+func TestHandleFrameAllOps(t *testing.T) {
+	mc := &mockCache{store: make(map[string][]byte)}
+	mr := &mockRouter{cache: mc}
+	var buf []byte
+
+	ops := []struct {
+		op  proto.OpCode
+		val []byte
+	}{
+		{proto.OpSet, []byte("val")},
+		{proto.OpSetEx, append([]byte{0, 0, 0, 10}, []byte("val")...)},
+		{proto.OpGet, nil},
+		{proto.OpDel, nil},
+		{proto.OpCAS, append([]byte{0, 0, 0, 3}, []byte("valval")...)},
+		{proto.OpIncr, []byte{1, 0, 0, 0, 0, 0, 0, 0}},
+		{proto.OpScan, []byte{0, 0, 0, 0, 0, 0, 0, 0, 10, 0, 0, 0}},
+		{proto.OpDelPrefix, nil},
+		{proto.OpHSet, append([]byte{4, 0}, []byte("nameAlice")...)},
+		{proto.OpHGet, []byte("name")},
+		{proto.OpHDel, []byte("name")},
+		{proto.OpHGetAll, nil},
+		{proto.OpLPush, []byte("elem")},
+		{proto.OpLPop, nil},
+		{proto.OpRPush, []byte("elem")},
+		{proto.OpRPop, nil},
+		{proto.OpLLen, nil},
+		{proto.OpSAdd, []byte("member")},
+		{proto.OpSRem, []byte("member")},
+		{proto.OpSIsMember, []byte("member")},
+		{proto.OpSMembers, nil},
+	}
+
+	for _, o := range ops {
+		buf = buf[:0]
+		fr := &proto.Frame{Op: o.op, Key: []byte("k"), Value: o.val}
+		if !handleFrame(mr, fr, &buf, noopRecorder{}, 0) {
+			t.Errorf("expected handleFrame to return true for op %v", o.op)
+		}
+	}
+}
+
+func TestHandleFrameAllOpsErrors(t *testing.T) {
+	ec := &errorCache{mockCache: mockCache{store: make(map[string][]byte)}}
+	er := &errorRouter{cache: ec}
+	var buf []byte
+
+	ops := []struct {
+		op  proto.OpCode
+		val []byte
+	}{
+		{proto.OpSet, []byte("val")},
+		{proto.OpSetEx, append([]byte{0, 0, 0, 10}, []byte("val")...)},
+		{proto.OpGet, nil},
+		{proto.OpDel, nil},
+		{proto.OpCAS, append([]byte{0, 0, 0, 3}, []byte("valval")...)},
+		{proto.OpIncr, []byte{1, 0, 0, 0, 0, 0, 0, 0}},
+		{proto.OpScan, []byte{0, 0, 0, 0, 0, 0, 0, 0, 10, 0, 0, 0}},
+		{proto.OpDelPrefix, nil},
+		{proto.OpHSet, append([]byte{4, 0}, []byte("nameAlice")...)},
+		{proto.OpHGet, []byte("name")},
+		{proto.OpHDel, []byte("name")},
+		{proto.OpHGetAll, nil},
+		{proto.OpLPush, []byte("elem")},
+		{proto.OpLPop, nil},
+		{proto.OpRPush, []byte("elem")},
+		{proto.OpRPop, nil},
+		{proto.OpLLen, nil},
+		{proto.OpSAdd, []byte("member")},
+		{proto.OpSRem, []byte("member")},
+		{proto.OpSIsMember, []byte("member")},
+		{proto.OpSMembers, nil},
+	}
+
+	for _, o := range ops {
+		buf = buf[:0]
+		fr := &proto.Frame{Op: o.op, Key: []byte("k"), Value: o.val}
+		if !handleFrame(er, fr, &buf, noopRecorder{}, 0) {
+			t.Errorf("expected handleFrame to return true for error op %v", o.op)
+		}
+	}
+}

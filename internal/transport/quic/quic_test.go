@@ -218,4 +218,44 @@ func (h *hitCache) LLen(key []byte) (uint32, error) { return 0, nil }
 func (h *hitCache) SAdd(key, member []byte) (bool, error) { return false, nil }
 func (h *hitCache) SRem(key, member []byte) (bool, error) { return false, nil }
 func (h *hitCache) SIsMember(key, member []byte) (bool, error) { return false, nil }
+func TestHandleFrameQUICAllOps(t *testing.T) {
+	mr := &mockRouter{}
+	var buf []byte
+
+	ops := []struct {
+		op  proto.OpCode
+		val []byte
+	}{
+		{proto.OpSet, []byte("val")},
+		{proto.OpSetEx, append([]byte{0, 0, 0, 10}, []byte("val")...)},
+		{proto.OpGet, nil},
+		{proto.OpDel, nil},
+		{proto.OpCAS, append([]byte{0, 0, 0, 3}, []byte("valval")...)},
+		{proto.OpIncr, []byte{1, 0, 0, 0, 0, 0, 0, 0}},
+		{proto.OpScan, []byte{0, 0, 0, 0, 0, 0, 0, 0, 10, 0, 0, 0}},
+		{proto.OpDelPrefix, nil},
+		{proto.OpHSet, append([]byte{4, 0}, []byte("nameAlice")...)},
+		{proto.OpHGet, []byte("name")},
+		{proto.OpHDel, []byte("name")},
+		{proto.OpHGetAll, nil},
+		{proto.OpLPush, []byte("elem")},
+		{proto.OpLPop, nil},
+		{proto.OpRPush, []byte("elem")},
+		{proto.OpRPop, nil},
+		{proto.OpLLen, nil},
+		{proto.OpSAdd, []byte("member")},
+		{proto.OpSRem, []byte("member")},
+		{proto.OpSIsMember, []byte("member")},
+		{proto.OpSMembers, nil},
+	}
+
+	for _, o := range ops {
+		buf = buf[:0]
+		fr := &proto.Frame{Op: o.op, Key: []byte("k"), Value: o.val}
+		if !handleFrameQUIC(mr, fr, &buf, noopRecorder{}, 0) {
+			t.Errorf("expected handleFrameQUIC to return true for op %v", o.op)
+		}
+	}
+}
+
 func (h *hitCache) SMembers(key []byte) ([][]byte, error) { return nil, nil }

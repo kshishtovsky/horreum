@@ -24,6 +24,8 @@ type Recorder interface {
 	ObserveDel(status string, dur time.Duration)
 	ObserveCAS(status string, dur time.Duration)
 	ObserveIncr(status string, dur time.Duration)
+	ObserveScan(status string, dur time.Duration)
+	ObserveDelPrefix(status string, dur time.Duration)
 }
 
 // Transport is the abstract listener / connection-servicer used by
@@ -44,6 +46,8 @@ type CacheService interface {
 	DeleteExpired(limit int) error
 	CAS(key, expectedValue, newValue []byte) (currentValue []byte, swapped bool, err error)
 	Incr(key []byte, delta int64) (int64, error)
+	Scan(prefix []byte, cursor uint64, count int) ([][]byte, uint64, error)
+	DelPrefix(prefix []byte) (uint64, error)
 	Close() error
 }
 
@@ -57,6 +61,8 @@ type ShardRouter interface {
 	// ShardCount returns the number of shards.  Transports use this
 	// to size their per-shard worker pools.
 	ShardCount() int
+	Scan(prefix []byte, cursor uint64, count int) ([][]byte, uint64, error)
+	DelPrefix(prefix []byte) (uint64, error)
 }
 
 // Errors returned by CacheService implementations.

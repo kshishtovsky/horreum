@@ -206,3 +206,25 @@ func TestHandleFrameSetError(t *testing.T) {
 		t.Error("expected handleFrame to return true on handled set error")
 	}
 }
+
+
+func (m *mockCache) Scan(prefix []byte, cursor uint64, count int) ([][]byte, uint64, error) {
+	return nil, 0, nil
+}
+func (m *mockCache) DelPrefix(prefix []byte) (uint64, error) {
+	return 0, nil
+}
+
+
+func (m *mockRouter) Scan(prefix []byte, cursor uint64, count int) ([][]byte, uint64, error) {
+	return nil, 0, nil
+}
+func (m *mockRouter) DelPrefix(prefix []byte) (uint64, error) {
+	return 0, nil
+}
+
+
+func (e *errorCache) Scan(prefix []byte, cursor uint64, count int) ([][]byte, uint64, error) { return nil, 0, nil }
+func (e *errorCache) DelPrefix(prefix []byte) (uint64, error) { return 0, nil }
+func (e *errorRouter) Scan(prefix []byte, cursor uint64, count int) ([][]byte, uint64, error) { return nil, 0, nil }
+func (e *errorRouter) DelPrefix(prefix []byte) (uint64, error) { return 0, nil }

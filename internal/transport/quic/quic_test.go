@@ -167,3 +167,25 @@ func (m *hitCache) DeleteExpired(limit int) error      { return nil }
 func (m *hitCache) CAS(k, ev, nv []byte) ([]byte, bool, error) { return nil, true, nil }
 func (m *hitCache) Incr(k []byte, d int64) (int64, error) { return d, nil }
 func (m *hitCache) Close() error                       { return nil }
+
+
+func (m *mockCache) Scan(prefix []byte, cursor uint64, count int) ([][]byte, uint64, error) {
+	return nil, 0, nil
+}
+func (m *mockCache) DelPrefix(prefix []byte) (uint64, error) {
+	return 0, nil
+}
+
+
+func (m *mockRouter) Scan(prefix []byte, cursor uint64, count int) ([][]byte, uint64, error) {
+	return nil, 0, nil
+}
+func (m *mockRouter) DelPrefix(prefix []byte) (uint64, error) {
+	return 0, nil
+}
+
+
+func (h *hitRouter) Scan(prefix []byte, cursor uint64, count int) ([][]byte, uint64, error) { return nil, 0, nil }
+func (h *hitRouter) DelPrefix(prefix []byte) (uint64, error) { return 0, nil }
+func (h *hitCache) Scan(prefix []byte, cursor uint64, count int) ([][]byte, uint64, error) { return nil, 0, nil }
+func (h *hitCache) DelPrefix(prefix []byte) (uint64, error) { return 0, nil }

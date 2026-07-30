@@ -399,6 +399,30 @@ func (s *shardCache) DeleteExpired(limit int) error {
 	return nil
 }
 
+// Scan implements CacheService.
+func (s *shardCache) Scan(prefix []byte, cursor uint64, count int) ([][]byte, uint64, error) {
+	if s == nil {
+		return nil, 0, errBackendNil
+	}
+	now := uint32(time.Now().Unix())
+	keys, nextCursor := s.idx.scanPrefix(prefix, cursor, count, now)
+	return keys, nextCursor, nil
+}
+
+// DelPrefix implements CacheService.
+func (s *shardCache) DelPrefix(prefix []byte) (uint64, error) {
+	if s == nil {
+		return 0, errBackendNil
+	}
+	now := uint32(time.Now().Unix())
+	freed, deletedKeys := s.idx.deletePrefix(prefix, now)
+	for i, h := range freed {
+		s.ev.Delete(deletedKeys[i], h)
+		_ = s.mgr.Free(h)
+	}
+	return uint64(len(freed)), nil
+}
+
 // Close releases the arena region.
 func (s *shardCache) Close() error {
 	if s == nil {
@@ -469,6 +493,31 @@ func (s *shardIndex) get(key []byte, now uint32) (arena.Handle, bool, uint32) {
 	}
 }
 
+func (s *shardIndex) deleteAt(i uint64) {
+	s.keys[i] = nil
+	s.handles[i] = arena.Handle{}
+	s.expiresAt[i] = 0
+	s.count--
+
+	gap := i
+	curr := (i + 1) & s.mask
+	for s.keys[curr] != nil {
+		desired := hashKey(s.keys[curr]) & s.mask
+		if (curr > gap && (desired <= gap || desired > curr)) ||
+			(curr < gap && (desired <= gap && desired > curr)) {
+			s.keys[gap] = s.keys[curr]
+			s.handles[gap] = s.handles[curr]
+			s.expiresAt[gap] = s.expiresAt[curr]
+
+			s.keys[curr] = nil
+			s.handles[curr] = arena.Handle{}
+			s.expiresAt[curr] = 0
+			gap = curr
+		}
+		curr = (curr + 1) & s.mask
+	}
+}
+
 func (s *shardIndex) delete(key []byte) (arena.Handle, bool) {
 	if s.count == 0 {
 		return arena.Handle{}, false
@@ -480,58 +529,11 @@ func (s *shardIndex) delete(key []byte) (arena.Handle, bool) {
 		}
 		if bytesEq(s.keys[i], key) {
 			old := s.handles[i]
-			s.keys[i] = nil
-			s.handles[i] = arena.Handle{}
-			s.expiresAt[i] = 0
-			s.count--
-			s.rehash((i + 1) & s.mask)
+			s.deleteAt(i)
 			return old, true
 		}
 		i = (i + 1) & s.mask
 	}
-}
-
-func (s *shardIndex) rehash(start uint64) {
-	i := start
-	for {
-		if s.keys[i] == nil {
-			return
-		}
-		k := s.keys[i]
-		h := s.handles[i]
-		desired := hashKey(k) & s.mask
-		if s.canMove(desired, i, start) {
-			gap := s.findGap(desired, i)
-			if gap != i {
-				s.keys[gap] = k
-				s.handles[gap] = h
-				s.expiresAt[gap] = s.expiresAt[i]
-				s.keys[i] = nil
-				s.handles[i] = arena.Handle{}
-				s.expiresAt[i] = 0
-				continue
-			}
-		}
-		i = (i + 1) & s.mask
-	}
-}
-
-func (s *shardIndex) canMove(desired, current, gap uint64) bool {
-	if desired <= gap {
-		return current >= gap || current < desired
-	}
-	return current >= gap && current < desired
-}
-
-func (s *shardIndex) findGap(desired, current uint64) uint64 {
-	gap := desired
-	for gap != current {
-		if s.keys[gap] == nil {
-			return gap
-		}
-		gap = (gap + 1) & s.mask
-	}
-	return current
 }
 
 func (s *shardIndex) grow() {
@@ -568,14 +570,78 @@ func (s *shardIndex) DeleteExpired(now uint32, limit int) []arena.Handle {
 		}
 		if s.expiresAt[idx] != 0 && now >= s.expiresAt[idx] {
 			freed = append(freed, s.handles[idx])
-			s.keys[idx] = nil
-			s.handles[idx] = arena.Handle{}
-			s.expiresAt[idx] = 0
-			s.count--
-			s.rehash((idx + 1) & s.mask)
+			s.deleteAt(idx)
 		}
 	}
 	return freed
+}
+
+func (s *shardIndex) scanPrefix(prefix []byte, cursor uint64, limit int, now uint32) ([][]byte, uint64) {
+	if s.count == 0 || limit <= 0 {
+		return nil, 0
+	}
+	cap := uint64(len(s.keys))
+	if cursor >= cap {
+		return nil, 0
+	}
+
+	var results [][]byte
+	idx := cursor
+
+	for idx < cap {
+		if s.keys[idx] != nil {
+			if s.expiresAt[idx] == 0 || now < s.expiresAt[idx] {
+				if len(prefix) == 0 || bytesHasPrefix(s.keys[idx], prefix) {
+					results = append(results, s.keys[idx])
+					if len(results) >= limit {
+						next := idx + 1
+						if next >= cap {
+							next = 0
+						}
+						return results, next
+					}
+				}
+			}
+		}
+		idx++
+	}
+
+	return results, 0
+}
+
+func (s *shardIndex) deletePrefix(prefix []byte, now uint32) ([]arena.Handle, [][]byte) {
+	if s.count == 0 {
+		return nil, nil
+	}
+	var freed []arena.Handle
+	var deletedKeys [][]byte
+	idx := uint64(0)
+	cap := uint64(len(s.keys))
+
+	for idx < cap {
+		if s.keys[idx] != nil {
+			if len(prefix) == 0 || bytesHasPrefix(s.keys[idx], prefix) {
+				freed = append(freed, s.handles[idx])
+				deletedKeys = append(deletedKeys, s.keys[idx])
+				s.deleteAt(idx)
+				continue
+			}
+		}
+		idx++
+	}
+	return freed, deletedKeys
+}
+
+func bytesHasPrefix(s, prefix []byte) bool {
+	if len(s) < len(prefix) {
+		return false
+	}
+	for i := range prefix {
+		if s[i] != prefix[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func bytesEq(a, b []byte) bool {
@@ -696,6 +762,54 @@ func (ss *ShardSet) CacheForShard(idx int) CacheService {
 		return nil
 	}
 	return ss.shards[idx]
+}
+
+// Scan iterates matching keys across shards. Upper 16 bits of cursor = shard index, lower 48 bits = bucket index inside shard.
+func (ss *ShardSet) Scan(prefix []byte, cursor uint64, count int) ([][]byte, uint64, error) {
+	if ss == nil || len(ss.shards) == 0 {
+		return nil, 0, nil
+	}
+	shardIdx := int(cursor >> 48)
+	innerCursor := cursor & 0x0000FFFFFFFFFFFF
+
+	if shardIdx >= len(ss.shards) {
+		return nil, 0, nil
+	}
+
+	keys, nextInner, err := ss.shards[shardIdx].Scan(prefix, innerCursor, count)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	var nextCursor uint64
+	if nextInner == 0 {
+		nextShard := shardIdx + 1
+		if nextShard >= len(ss.shards) {
+			nextCursor = 0
+		} else {
+			nextCursor = uint64(nextShard) << 48
+		}
+	} else {
+		nextCursor = (uint64(shardIdx) << 48) | nextInner
+	}
+
+	return keys, nextCursor, nil
+}
+
+// DelPrefix deletes matching keys across all shards and returns total deleted count.
+func (ss *ShardSet) DelPrefix(prefix []byte) (uint64, error) {
+	if ss == nil || len(ss.shards) == 0 {
+		return 0, nil
+	}
+	var total uint64
+	for _, shard := range ss.shards {
+		n, err := shard.DelPrefix(prefix)
+		if err != nil {
+			return total, err
+		}
+		total += n
+	}
+	return total, nil
 }
 
 // StartGCLoop starts a background goroutine that periodically submits

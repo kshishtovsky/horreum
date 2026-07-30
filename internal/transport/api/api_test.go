@@ -67,3 +67,11 @@ func TestServerFactory(t *testing.T) {
 		t.Error(err)
 	}
 }
+
+
+func (m *mockRouter) Scan(prefix []byte, cursor uint64, count int) ([][]byte, uint64, error) {
+	return nil, 0, nil
+}
+func (m *mockRouter) DelPrefix(prefix []byte) (uint64, error) {
+	return 0, nil
+}

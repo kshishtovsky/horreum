@@ -3,6 +3,8 @@
 package index
 
 import (
+	"bytes"
+
 	"github.com/horreum/horreum/internal/arena"
 )
 
@@ -80,6 +82,28 @@ func (h *HashIndex) Get(key []byte, now uint32) (arena.Handle, bool) {
 	}
 }
 
+func (h *HashIndex) deleteAt(i uint64) {
+	h.keys[i] = nil
+	h.buckets[i] = Entry{}
+	h.count--
+
+	gap := i
+	curr := (i + 1) & h.mask
+	for h.keys[curr] != nil {
+		desired := h.buckets[curr].Hash & h.mask
+		if (curr > gap && (desired <= gap || desired > curr)) ||
+			(curr < gap && (desired <= gap && desired > curr)) {
+			h.keys[gap] = h.keys[curr]
+			h.buckets[gap] = h.buckets[curr]
+
+			h.keys[curr] = nil
+			h.buckets[curr] = Entry{}
+			gap = curr
+		}
+		curr = (curr + 1) & h.mask
+	}
+}
+
 // Delete removes a key. Returns (handle, true) if found and removed.
 func (h *HashIndex) Delete(key []byte) (arena.Handle, bool) {
 	hash := fnv64(key)
@@ -90,58 +114,11 @@ func (h *HashIndex) Delete(key []byte) (arena.Handle, bool) {
 		}
 		if h.buckets[idx].Hash == hash && h.buckets[idx].KeyLen == uint16(len(key)) && bytesEqual(h.keys[idx], key) {
 			hd := h.buckets[idx].Handle
-			h.keys[idx] = nil
-			h.buckets[idx] = Entry{}
-			h.count--
-			// Rehash following entries in the cluster.
-			h.rehashFrom((idx + 1) & h.mask)
+			h.deleteAt(idx)
 			return hd, true
 		}
 		idx = (idx + 1) & h.mask
 	}
-}
-
-func (h *HashIndex) rehashFrom(start uint64) {
-	idx := start
-	for {
-		if h.keys[idx] == nil {
-			return
-		}
-		entry := h.buckets[idx]
-		key := h.keys[idx]
-		desired := entry.Hash & h.mask
-		// Check if this entry can be moved to fill a gap.
-		if canMove(desired, idx, start, h.mask) {
-			// Find the gap.
-			gap := findGap(desired, idx, h.mask, h.keys)
-			if gap != idx {
-				h.buckets[gap] = entry
-				h.keys[gap] = key
-				h.keys[idx] = nil
-				h.buckets[idx] = Entry{}
-				continue // Rehash from the vacated slot.
-			}
-		}
-		idx = (idx + 1) & h.mask
-	}
-}
-
-func canMove(desired, current, gap, mask uint64) bool {
-	if desired <= gap {
-		return current >= gap || current < desired
-	}
-	return current >= gap && current < desired
-}
-
-func findGap(desired, current, mask uint64, keys [][]byte) uint64 {
-	gap := desired
-	for gap != current {
-		if keys[gap] == nil {
-			return gap
-		}
-		gap = (gap + 1) & mask
-	}
-	return current
 }
 
 // SnapshotEntry pairs a bucket Entry with its key bytes for serialization.
@@ -226,11 +203,64 @@ func (h *HashIndex) DeleteExpired(now uint32, limit int) []arena.Handle {
 		}
 		if h.buckets[idx].ExpiresAt != 0 && now >= h.buckets[idx].ExpiresAt {
 			freed = append(freed, h.buckets[idx].Handle)
-			h.keys[idx] = nil
-			h.buckets[idx] = Entry{}
-			h.count--
-			h.rehashFrom((idx + 1) & h.mask)
+			h.deleteAt(idx)
 		}
+	}
+	return freed
+}
+
+// ScanPrefix iterates buckets starting from cursor and returns up to limit keys matching prefix.
+func (h *HashIndex) ScanPrefix(prefix []byte, cursor uint64, limit int, now uint32) ([][]byte, uint64) {
+	if h.count == 0 || limit <= 0 {
+		return nil, 0
+	}
+	cap := uint64(len(h.buckets))
+	if cursor >= cap {
+		return nil, 0
+	}
+
+	var results [][]byte
+	idx := cursor
+
+	for idx < cap {
+		if h.keys[idx] != nil {
+			if h.buckets[idx].ExpiresAt == 0 || now < h.buckets[idx].ExpiresAt {
+				if len(prefix) == 0 || bytes.HasPrefix(h.keys[idx], prefix) {
+					results = append(results, h.keys[idx])
+					if len(results) >= limit {
+						next := idx + 1
+						if next >= cap {
+							next = 0
+						}
+						return results, next
+					}
+				}
+			}
+		}
+		idx++
+	}
+
+	return results, 0
+}
+
+// DeletePrefix deletes all keys matching prefix and returns their arena handles.
+func (h *HashIndex) DeletePrefix(prefix []byte, now uint32) []arena.Handle {
+	if h.count == 0 {
+		return nil
+	}
+	var freed []arena.Handle
+	idx := uint64(0)
+	cap := uint64(len(h.buckets))
+
+	for idx < cap {
+		if h.keys[idx] != nil {
+			if len(prefix) == 0 || bytes.HasPrefix(h.keys[idx], prefix) {
+				freed = append(freed, h.buckets[idx].Handle)
+				h.deleteAt(idx)
+				continue
+			}
+		}
+		idx++
 	}
 	return freed
 }

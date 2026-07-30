@@ -1,46 +1,190 @@
-# 配置指南与说明 ⚙️
+# Horreum 配置参考 ⚙️
 
 [English](../configuration.md) | [Русский](../ru/configuration.md) | [中文](configuration.md)
 
 ---
 
-## 配置文件规范 (`config.yaml`)
+## 1. 加载顺序
 
-Horreum 配置文件说明：
+1. 内置默认值
+2. YAML 文件（`--config=path.yaml`）
+3. CLI 标志
+4. 环境变量（`HORREUM_KEY`）
+
+YAML 先加载；标志覆盖 YAML。
+
+---
+
+## 2. 内置默认值
+
+| 字段 | 默认 |
+|------|------|
+| `addr` | `:7373` |
+| `transport` | `tcp` |
+| `shards` | `4` / `4 × NumCPU`（限制 `[4, 64]`） |
+| `region_size` | `256MiB` |
+| `evict_capacity` | `4096` |
+| `persistent_path` | `""` |
+| `durable` | `true` |
+| `metrics_addr` | `:9090` |
+| `shutdown_timeout` | `30s` |
+| `compression` | `none` |
+| `log_level` | `info` |
+| `log_format` | `text` |
+| `slow_log_threshold` | `10ms` |
+
+---
+
+## 3. YAML 模式
 
 ```yaml
 server:
-  addr: ":7373"             # 客户端连接监听地址与端口
-  transport: "tcp"          # 传输层协议："tcp" 或 "quic"
-  shards: 4                 # 内存分片数量
-  region_size: "256MiB"     # 每个分片的 mmap 内存大小
-  evict_capacity: 4096      # 每个分片的 S3-FIFO 淘汰队列容量上限
-  tls_cert: ""              # TLS 证书路径（仅 QUIC 需要）
-  tls_key: ""               # TLS 私钥路径（仅 QUIC 需要）
-  shutdown_timeout: "30s"   # 平滑关闭最大超时等待时间
-
+  addr: ":7373"
+  transport: "tcp"
+  shards: 4
+  region_size: "256MiB"
+  evict_capacity: 4096
+  tls_cert: ""
+  tls_key: ""
+  shutdown_timeout: "30s"
 storage:
-  persistent_path: ""       # 磁盘持久化目录（为空则为内存模式）
-  durable: true             # 是否在每次写入后强制刷新 WAL 到磁盘 (fsync)
-
+  persistent_path: ""
+  durable: true
 metrics:
-  addr: ":9090"             # Prometheus 指标导出地址
-
+  addr: ":9090"
 compression:
-  algorithm: "none"         # 值压缩算法："none" 或 "lz4"
-  min_size: 64              # 触发 LZ4 压缩的最小载荷字节数
-
+  algorithm: "none"
+  min_size: 64
 logging:
-  level: "info"             # 日志级别：debug, info, warn, error
-  format: "text"            # 日志输出格式：text 或 json
-  slow_log_threshold: "10ms" # WAL 刷新慢日志告警阈值
-
+  level: "info"
+  format: "text"
+  slow_log_threshold: "10ms"
 security:
-  encryption_key_path: ""   # 32 字节 AES 加密密钥文件路径
+  encryption_key_path: ""
+```
+
+### 3.1 大小单位
+
+| 单位 | 倍数 |
+|------|------|
+| `B` / 空 | 1 |
+| `K`, `KB` | 1000 |
+| `M`, `MB` | 1,000,000 |
+| `G`, `GB` | 1,000,000,000 |
+| `T`, `TB` | 10^12 |
+| `Ki`, `KiB` | 1024 |
+| `Mi`, `MiB` | 1024^2 |
+| `Gi`, `GiB` | 1024^3 |
+| `Ti`, `TiB` | 1024^4 |
+
+### 3.2 持续时间格式
+
+Go 格式：`30s`, `1m30s`, `100ms`, `1h`。
+
+### 3.3 布尔值
+
+不区分大小写：`true|yes|on|1` / `false|no|off|0`。
+
+---
+
+## 4. CLI 标志
+
+```
+--addr=":7373"
+--transport="tcp"
+--shards=4
+--region-size=268435456
+--evict-capacity=4096
+--persistent-path=""
+--durable=true
+--metrics-addr=":9090"
+--compression="none"
+--min-compress-size=64
+--log-level="info"
+--log-format="text"
+--encryption-key-path=""
+--keygen="/path"     # 生成密钥并退出
+--version
+```
+
+`HORREUM_KEY` 环境变量：64 个十六进制字符、44 个 base64 字符或 32 个原始字符。
+
+---
+
+## 5. 示例
+
+### 最小 TCP
+
+```bash
+./horreum --addr=:7373
+```
+
+### 生产 QUIC + TLS
+
+```yaml
+server:
+  transport: quic
+  tls_cert: /etc/horreum.crt
+  tls_key: /etc/horreum.key
+  shards: 8
+  region_size: "1GiB"
+storage:
+  persistent_path: /var/lib/horreum
+  durable: true
+metrics:
+  addr: ":9090"
+compression:
+  algorithm: lz4
+security:
+  encryption_key_path: /etc/horreum.key
+logging:
+  format: json
+```
+
+```bash
+./horreum --config=/etc/horreum.yaml
+```
+
+### 环境覆盖
+
+```bash
+export HORREUM_KEY="$(cat /etc/horreum.key)"
+./horreum --config=/etc/horreum.yaml
 ```
 
 ---
 
-## 环境变量
+## 6. 验证
 
-- `HORREUM_KEY`: 32 字节二进制、64 字符十六进制 (Hex) 或 44 字符 Base64 AES-256 加密密钥。优先级高于 `encryption_key_path` 配置文件设定。
+启动时验证每个值。无效 → 退出码 1。
+
+`region_size > 0`，`shards ∈ (0, 256]`，`addr` 解析为 `host:port`，密钥文件正好 32 字节。
+
+---
+
+## 7. 热重载
+
+Horreum 不支持运行时重新加载配置。SIGTERM + 重启。
+
+---
+
+## 8. 模式参考（代码级）
+
+```go
+type Config struct {
+    Server      ServerConfig
+    Storage     StorageConfig
+    Metrics     MetricsConfig
+    Compression CompressionConfig
+    Logging     LoggingConfig
+    Security    SecurityConfig
+}
+```
+
+指针类型 `*int`、`*uint64`、`*bool` 区分"显式设置"与"使用默认值"。
+
+---
+
+## 9. 绑定硬件的默认值
+
+`shards = 4 × NumCPU`（限制 `[4, 64]`）。`SlowLogThreshold = 10 ms`。

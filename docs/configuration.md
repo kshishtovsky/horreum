@@ -1,99 +1,304 @@
-# Configuration Specification ⚙️
+# Horreum Configuration Reference ⚙️
 
 [English](configuration.md) | [Русский](ru/configuration.md) | [中文](zh/configuration.md)
 
 ---
 
-## Configuration File (`config.yaml`)
+## 1. Loading Order
 
-Horreum includes a zero-dependency stdlib YAML configuration parser (`internal/config`).
+Configuration values resolve in this order, later overriding earlier:
+
+1. **Built-in defaults** — compiled into the binary.
+2. **YAML file** — `--config=path.yaml` (or `-config path.yaml`).
+3. **CLI flags** — override YAML.
+4. **Environment variables** — `HORREUM_KEY` for encryption.
+
+YAML loads first; flags use YAML-loaded values as defaults.
+
+---
+
+## 2. Built-in Defaults
+
+| Field | Default |
+|-------|---------|
+| `addr` | `:7373` |
+| `transport` | `tcp` |
+| `shards` | `4` (server) or `4 × NumCPU` clamped `[4, 64]` |
+| `region_size` | `256MiB` |
+| `evict_capacity` | `4096` |
+| `persistent_path` | `""` |
+| `durable` | `true` |
+| `metrics_addr` | `:9090` |
+| `tls_cert` / `tls_key` | `""` |
+| `shutdown_timeout` | `30s` |
+| `compression` | `none` |
+| `min_size` | `64` |
+| `log_level` | `info` |
+| `log_format` | `text` |
+| `slow_log_threshold` | `10ms` |
+| `encryption_key_path` | `""` |
+
+---
+
+## 3. YAML Schema
 
 ```yaml
 server:
-  # Host and port to listen for incoming client connections (default ":7373").
-  addr: ":7373"
-
-  # Transport layer protocol: "tcp" or "quic" (default "tcp").
-  transport: "tcp"
-
-  # Number of in-memory database shards (default 4).
-  shards: 4
-
-  # Memory-mapped arena region size per shard (e.g. 256MiB, 1GiB).
-  region_size: "256MiB"
-
-  # S3-FIFO eviction capacity (number of objects) per shard.
+  addr: ":7373"                # listen address
+  transport: "tcp"             # "tcp" | "quic"
+  shards: 4                    # 0 → 4×NumCPU, clamped 4..64
+  region_size: "256MiB"        # per-shard arena region
   evict_capacity: 4096
-
-  # TLS Certificate files (required only if transport is "quic").
-  tls_cert: ""
-  tls_key: ""
-
-  # Max duration to wait for active connections to drain on shutdown.
+  tls_cert: ""                 # TLS cert (QUIC)
+  tls_key: ""                  # TLS private key (QUIC)
   shutdown_timeout: "30s"
 
 storage:
-  # Path to persistent storage directory. If empty, runs in anonymous memory mode.
-  persistent_path: ""
-
-  # If true, fsyncs the WAL after every write operation (valid in persistent mode).
-  durable: true
+  persistent_path: ""          # empty = anonymous
+  durable: true                # fsync WAL each write
 
 metrics:
-  # Listen address for Prometheus metrics endpoint (host:port/metrics).
   addr: ":9090"
 
 compression:
-  # Value compression algorithm: "none" (disabled) or "lz4".
-  algorithm: "none"
-
-  # Minimum payload size in bytes to trigger LZ4 compression.
+  algorithm: "none"            # "none" | "lz4"
   min_size: 64
 
 logging:
-  # Logging level: debug, info, warn, error.
-  level: "info"
-
-  # Logging format: text or json.
-  format: "text"
-
-  # Operations slower than this threshold will trigger slow log Warn messages.
+  level: "info"                # "debug" | "info" | "warn" | "error"
+  format: "text"               # "text" | "json"
   slow_log_threshold: "10ms"
 
 security:
-  # Path to the 32-byte encryption key file.
-  # If empty, a key will be auto-generated at "horreum.key".
-  encryption_key_path: ""
+  encryption_key_path: ""      # 32-byte AES key file
+```
+
+### 3.1 Size Units
+
+| Unit | Multiplier |
+|------|------------|
+| `B` (or empty) | 1 |
+| `K`, `KB` | 1000 |
+| `M`, `MB` | 1,000,000 |
+| `G`, `GB` | 1,000,000,000 |
+| `T`, `TB` | 10^12 |
+| `Ki`, `KiB` | 1024 |
+| `Mi`, `MiB` | 1024^2 |
+| `Gi`, `GiB` | 1024^3 |
+| `Ti`, `TiB` | 1024^4 |
+
+### 3.2 Duration Format
+
+`shutdown_timeout`, `slow_log_threshold` accept Go-style durations (`30s`, `1m30s`, `100ms`, `1h`). Uses `time.ParseDuration` internally.
+
+### 3.3 Boolean Values
+
+Case-insensitive: `true|yes|on|1` / `false|no|off|0`.
+
+---
+
+## 4. CLI Flags
+
+### 4.1 Server
+```
+--addr=":7373"
+--transport="tcp"
+--shards=4
+--region-size=268435456     # 256 MiB
+--evict-capacity=4096
+--tls-cert=""
+--tls-key=""
+--shutdown-timeout=30s
+```
+
+### 4.2 Storage
+```
+--persistent-path=""
+--durable=true
+```
+
+### 4.3 Metrics
+```
+--metrics-addr=":9090"
+```
+
+### 4.4 Compression
+```
+--compression="none"     # or "lz4"
+--min-compress-size=64
+```
+
+### 4.5 Logging
+```
+--log-level="info"
+--log-format="text"
+--slow-log-threshold=10ms
+```
+
+### 4.6 Security
+```
+--encryption-key-path=""
+```
+
+If file is missing, a fresh 32-byte key is auto-generated (0600). Or set `HORREUM_KEY`:
+
+- 64 hex chars (256-bit)
+- 44 base64 chars (raw bytes)
+- 32 raw chars
+
+`HORREUM_KEY` overrides the file.
+
+### 4.7 Operational
+```
+--keygen="/path/to/key"   # generate key and exit
+--version                 # print and exit
+--config=""               # YAML config
 ```
 
 ---
 
-## CLI Flags Reference
+## 5. Environment Variables
 
-Any configuration parameter in `config.yaml` can be overridden via CLI flags:
-
-| Flag | Default | Description |
-| :--- | :--- | :--- |
-| `--config` | `""` | Path to YAML configuration file |
-| `--addr` | `:7373` | Server listen address |
-| `--transport` | `tcp` | Transport layer protocol (`tcp` or `quic`) |
-| `--shards` | `4` | Number of database shards |
-| `--region-size` | `268435456` | Arena region size per shard in bytes |
-| `--evict-capacity` | `4096` | S3-FIFO capacity limit per shard |
-| `--persistent-path` | `""` | Enable persistent storage mode at this directory |
-| `--durable` | `true` | Fsync WAL on every write operation |
-| `--metrics-addr` | `:9090` | Prometheus metrics listen address |
-| `--compression` | `none` | Value compression algorithm (`none` or `lz4`) |
-| `--min-compress-size` | `64` | Minimum payload size to trigger compression |
-| `--log-level` | `info` | Logging level (`debug`, `info`, `warn`, `error`) |
-| `--log-format` | `text` | Logging format (`text` or `json`) |
-| `--slow-log-threshold` | `10ms` | Latency threshold for slow log warnings |
-| `--encryption-key-path` | `""` | Path to 32-byte AES encryption key file |
-| `--keygen` | `""` | Generate a new 32-byte AES key file at path and exit |
-| `--version` | `false` | Print version information and exit |
+| Variable | Effect |
+|----------|--------|
+| `HORREUM_KEY` | Encryption key override. |
 
 ---
 
-## Environment Variables
+## 6. Examples
 
-- `HORREUM_KEY`: 32-byte raw binary, 64-character hex, or 44-character base64 AES encryption key. Overrides `--encryption-key-path`.
+### 6.1 Minimal TCP, Anonymous
+
+```bash
+./horreum --addr=:7373
+```
+
+### 6.2 Production QUIC with TLS
+
+```yaml
+# /etc/horreum.yaml
+server:
+  addr: ":7373"
+  transport: quic
+  tls_cert: /etc/horreum.crt
+  tls_key: /etc/horreum.key
+  shards: 8
+  region_size: "1GiB"
+storage:
+  persistent_path: /var/lib/horreum
+  durable: true
+metrics:
+  addr: ":9090"
+compression:
+  algorithm: lz4
+  min_size: 64
+security:
+  encryption_key_path: /etc/horreum.key
+logging:
+  level: info
+  format: json
+```
+
+```bash
+./horreum --config=/etc/horreum.yaml
+```
+
+### 6.3 Environment Override
+
+```bash
+export HORREUM_KEY="$(cat /etc/horreum.key)"
+./horreum --config=/etc/horreum.yaml
+```
+
+---
+
+## 7. Validation
+
+Horreum validates each value at startup and exits with code 1 + a log line if invalid:
+
+| Field | Check |
+|-------|-------|
+| `region_size` | Parses as size; > 0 |
+| `shards` | > 0; ≤ 256 |
+| `addr` | Parses as `host:port` |
+| `transport` | `tcp` or `quic` |
+| `persistent_path` | Directory must exist or be creatable |
+| `evict_capacity` | > 0 |
+| `slow_log_threshold` | Parses as duration |
+| `shutdown_timeout` | Parses as duration |
+
+The TLS cert and key files (if specified) are loaded via `tls.LoadX509KeyPair`.
+
+The encryption key file must be exactly 32 bytes.
+
+---
+
+## 8. Hot Reload
+
+Horreum does **not** reload configuration at runtime. To apply a new configuration:
+
+1. `SIGTERM` the running process (graceful shutdown runs the checkpoint).
+2. Restart with new flags / YAML.
+
+---
+
+## 9. Schema Reference (Code-Level)
+
+```go
+type ServerConfig struct {
+    Addr            string
+    Transport       string
+    Shards          *int
+    RegionSize      string    // e.g. "1GiB"
+    EvictCapacity   *uint64
+    TLSCert         string
+    TLSKey          string
+    ShutdownTimeout string    // e.g. "30s"
+}
+
+type StorageConfig struct {
+    PersistentPath string
+    Durable        *bool
+}
+
+type MetricsConfig struct {
+    Addr string
+}
+
+type CompressionConfig struct {
+    Algorithm string
+    MinSize   *int
+}
+
+type LoggingConfig struct {
+    Level            string
+    Format           string
+    SlowLogThreshold string
+}
+
+type SecurityConfig struct {
+    EncryptionKeyPath string
+}
+
+type Config struct {
+    Server      ServerConfig
+    Storage     StorageConfig
+    Metrics     MetricsConfig
+    Compression CompressionConfig
+    Logging     LoggingConfig
+    Security    SecurityConfig
+}
+```
+
+Pointer types (`*int`, `*uint64`, `*bool`) distinguish "explicitly set" from "use default".
+
+---
+
+## 10. Defaults Tied to Hardware
+
+Two values derive from the runtime environment:
+
+- **`shards`**: `4 × NumCPU`, clamped `[4, 64]`.
+- **`SlowLogThreshold`**: `10 ms` (increase on slow disks).
+
+These are the only hardware-dependent knobs.

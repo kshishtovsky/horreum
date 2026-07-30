@@ -11,6 +11,7 @@ import (
 	"net"
 	"runtime"
 	"sync/atomic"
+	"time"
 
 	"github.com/horreum/horreum/internal/arena"
 	"github.com/horreum/horreum/internal/compress"
@@ -100,7 +101,7 @@ func newShardCacheFromArena(mgr *arena.Manager, evictCapacity uint64, comp compr
 // If compression is enabled and the value exceeds the minimum
 // threshold, the value is compressed before storing in the arena.
 // The CompressedFlag meta bit is set so Get knows to decompress.
-func (s *shardCache) Set(key, value []byte) ([]byte, error) {
+func (s *shardCache) Set(key, value []byte, ttlSeconds uint32) ([]byte, error) {
 	if s == nil {
 		return nil, errBackendNil
 	}
@@ -143,7 +144,12 @@ func (s *shardCache) Set(key, value []byte) ([]byte, error) {
 	for _, e := range s.ev.Add(key, h) {
 		_ = s.mgr.Free(e)
 	}
-	old, replaced := s.idx.put(key, h)
+	
+	expiresAt := uint32(0)
+	if ttlSeconds > 0 {
+		expiresAt = uint32(time.Now().Unix()) + ttlSeconds
+	}
+	old, replaced := s.idx.put(key, h, expiresAt)
 	if replaced {
 		_ = s.mgr.Free(old)
 	}
@@ -166,7 +172,8 @@ func (s *shardCache) Get(key []byte) ([]byte, error) {
 	if s == nil {
 		return nil, errBackendNil
 	}
-	h, ok := s.idx.get(key)
+	now := uint32(time.Now().Unix())
+	h, ok := s.idx.get(key, now)
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -212,6 +219,20 @@ func (s *shardCache) Delete(key []byte) error {
 	return s.mgr.Free(h)
 }
 
+// DeleteExpired implements CacheService.
+func (s *shardCache) DeleteExpired(limit int) error {
+	if s == nil {
+		return errBackendNil
+	}
+	now := uint32(time.Now().Unix())
+	freed := s.idx.DeleteExpired(now, limit)
+	for _, h := range freed {
+		s.ev.Remove(h)
+		_ = s.mgr.Free(h)
+	}
+	return nil
+}
+
 // Close releases the arena region.
 func (s *shardCache) Close() error {
 	if s == nil {
@@ -222,22 +243,25 @@ func (s *shardCache) Close() error {
 
 // shardIndex is a minimal key→handle hash index.  Not concurrent-safe.
 type shardIndex struct {
-	keys    [][]byte
-	handles []arena.Handle
-	count   int
-	mask    uint64
+	keys       [][]byte
+	handles    []arena.Handle
+	expiresAt  []uint32
+	count      int
+	mask       uint64
+	scanCursor uint64
 }
 
 func newShardIndex() *shardIndex {
 	const initial = 64
 	return &shardIndex{
-		keys:    make([][]byte, initial),
-		handles: make([]arena.Handle, initial),
-		mask:    initial - 1,
+		keys:      make([][]byte, initial),
+		handles:   make([]arena.Handle, initial),
+		expiresAt: make([]uint32, initial),
+		mask:      initial - 1,
 	}
 }
 
-func (s *shardIndex) put(key []byte, h arena.Handle) (arena.Handle, bool) {
+func (s *shardIndex) put(key []byte, h arena.Handle, expiresAt uint32) (arena.Handle, bool) {
 	if s.count*4 >= len(s.keys)*3 {
 		s.grow()
 	}
@@ -246,19 +270,21 @@ func (s *shardIndex) put(key []byte, h arena.Handle) (arena.Handle, bool) {
 		if s.keys[i] == nil {
 			s.keys[i] = key
 			s.handles[i] = h
+			s.expiresAt[i] = expiresAt
 			s.count++
 			return arena.Handle{}, false
 		}
 		if bytesEq(s.keys[i], key) {
 			old := s.handles[i]
 			s.handles[i] = h
+			s.expiresAt[i] = expiresAt
 			return old, true
 		}
 		i = (i + 1) & s.mask
 	}
 }
 
-func (s *shardIndex) get(key []byte) (arena.Handle, bool) {
+func (s *shardIndex) get(key []byte, now uint32) (arena.Handle, bool) {
 	if s.count == 0 {
 		return arena.Handle{}, false
 	}
@@ -268,6 +294,9 @@ func (s *shardIndex) get(key []byte) (arena.Handle, bool) {
 			return arena.Handle{}, false
 		}
 		if bytesEq(s.keys[i], key) {
+			if s.expiresAt[i] != 0 && now >= s.expiresAt[i] {
+				return arena.Handle{}, false
+			}
 			return s.handles[i], true
 		}
 		i = (i + 1) & s.mask
@@ -287,6 +316,7 @@ func (s *shardIndex) delete(key []byte) (arena.Handle, bool) {
 			old := s.handles[i]
 			s.keys[i] = nil
 			s.handles[i] = arena.Handle{}
+			s.expiresAt[i] = 0
 			s.count--
 			s.rehash((i + 1) & s.mask)
 			return old, true
@@ -309,8 +339,10 @@ func (s *shardIndex) rehash(start uint64) {
 			if gap != i {
 				s.keys[gap] = k
 				s.handles[gap] = h
+				s.expiresAt[gap] = s.expiresAt[i]
 				s.keys[i] = nil
 				s.handles[i] = arena.Handle{}
+				s.expiresAt[i] = 0
 				continue
 			}
 		}
@@ -339,16 +371,45 @@ func (s *shardIndex) findGap(desired, current uint64) uint64 {
 func (s *shardIndex) grow() {
 	oldKeys := s.keys
 	oldHandles := s.handles
+	oldExpires := s.expiresAt
 	nc := uint64(len(oldKeys)) * 2
 	s.keys = make([][]byte, nc)
 	s.handles = make([]arena.Handle, nc)
+	s.expiresAt = make([]uint32, nc)
 	s.mask = nc - 1
 	s.count = 0
+	s.scanCursor = 0
 	for i, k := range oldKeys {
 		if k != nil {
-			s.put(k, oldHandles[i])
+			s.put(k, oldHandles[i], oldExpires[i])
 		}
 	}
+}
+
+func (s *shardIndex) DeleteExpired(now uint32, limit int) []arena.Handle {
+	if s.count == 0 || limit <= 0 {
+		return nil
+	}
+	var freed []arena.Handle
+	scanned := 0
+	for scanned < limit {
+		idx := s.scanCursor
+		s.scanCursor = (s.scanCursor + 1) & s.mask
+		scanned++
+
+		if s.keys[idx] == nil {
+			continue
+		}
+		if s.expiresAt[idx] != 0 && now >= s.expiresAt[idx] {
+			freed = append(freed, s.handles[idx])
+			s.keys[idx] = nil
+			s.handles[idx] = arena.Handle{}
+			s.expiresAt[idx] = 0
+			s.count--
+			s.rehash((idx + 1) & s.mask)
+		}
+	}
+	return freed
 }
 
 func bytesEq(a, b []byte) bool {
@@ -461,6 +522,44 @@ func (ss *ShardSet) ShardCount() int {
 		return 0
 	}
 	return len(ss.shards)
+}
+
+// CacheForShard returns the cache for a specific shard index.
+func (ss *ShardSet) CacheForShard(idx int) CacheService {
+	if ss == nil || idx < 0 || idx >= len(ss.shards) {
+		return nil
+	}
+	return ss.shards[idx]
+}
+
+// StartGCLoop starts a background goroutine that periodically submits
+// DeleteExpired jobs to the provided WorkerPool.
+func (ss *ShardSet) StartGCLoop(workers *WorkerPool, limit int) {
+	if ss == nil || len(ss.shards) == 0 {
+		return
+	}
+	go func() {
+		ticker := time.NewTicker(1 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				if ss.closed.Load() {
+					return
+				}
+				for i := 0; i < len(ss.shards); i++ {
+					idx := i
+					workers.Submit(Job{
+						Handle: func(canceled bool) {
+							if !canceled && !ss.closed.Load() {
+								_ = ss.shards[idx].DeleteExpired(limit)
+							}
+						},
+					}, idx)
+				}
+			}
+		}
+	}()
 }
 
 // PickByAddr returns the shard index for a remote address.  Used by

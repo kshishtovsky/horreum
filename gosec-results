@@ -1,0 +1,1184 @@
+{
+	"Golang errors": {},
+	"Issues": [
+		{
+			"severity": "HIGH",
+			"confidence": "MEDIUM",
+			"cwe": {
+				"id": "190",
+				"url": "https://cwe.mitre.org/data/definitions/190.html"
+			},
+			"rule_id": "G115",
+			"details": "integer overflow conversion uint64 -\u003e uint32",
+			"file": "E:\\pet\\horreum\\internal\\arena\\arena.go",
+			"code": "168: \tr := \u0026region{data: data}\n169: \tr.alloc.Init(uint32(regionSize))\n170: \t// Reserve the persist-managed prefix (superblock + checkpoint\n",
+			"line": "169",
+			"column": "21",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "HIGH",
+			"confidence": "MEDIUM",
+			"cwe": {
+				"id": "190",
+				"url": "https://cwe.mitre.org/data/definitions/190.html"
+			},
+			"rule_id": "G115",
+			"details": "integer overflow conversion uint64 -\u003e uint32",
+			"file": "E:\\pet\\horreum\\internal\\arena\\arena.go",
+			"code": "102: \tr := \u0026region{data: data}\n103: \tr.alloc.Init(uint32(size))\n104: \treturn r, nil\n",
+			"line": "103",
+			"column": "21",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "HIGH",
+			"confidence": "MEDIUM",
+			"cwe": {
+				"id": "190",
+				"url": "https://cwe.mitre.org/data/definitions/190.html"
+			},
+			"rule_id": "G115",
+			"details": "integer overflow conversion uint64 -\u003e uint32",
+			"file": "E:\\pet\\horreum\\internal\\arena\\allocator.go",
+			"code": "137: \t\tif a.offset.CompareAndSwap(cur, newOff) {\n138: \t\t\treturn uint32(aligned), nil\n139: \t\t}\n",
+			"line": "138",
+			"column": "17",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "HIGH",
+			"confidence": "MEDIUM",
+			"cwe": {
+				"id": "190",
+				"url": "https://cwe.mitre.org/data/definitions/190.html"
+			},
+			"rule_id": "G115",
+			"details": "integer overflow conversion uint64 -\u003e int64",
+			"file": "E:\\pet\\horreum\\internal\\arena\\persist\\recovery.go",
+			"code": "85: \twalMax := walMaxLen(regionSize)\n86: \twal, err := OpenWAL(walPath, int64(walMax))\n87: \tif err != nil {\n",
+			"line": "86",
+			"column": "36",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "HIGH",
+			"confidence": "MEDIUM",
+			"cwe": {
+				"id": "190",
+				"url": "https://cwe.mitre.org/data/definitions/190.html"
+			},
+			"rule_id": "G115",
+			"details": "integer overflow conversion uint64 -\u003e int64",
+			"file": "E:\\pet\\horreum\\internal\\arena\\persist\\persist.go",
+			"code": "86: \twalMax := walMaxLen(opts.RegionSize)\n87: \twal, err := OpenWAL(walPath, int64(walMax))\n88: \tif err != nil {\n",
+			"line": "87",
+			"column": "36",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "HIGH",
+			"confidence": "MEDIUM",
+			"cwe": {
+				"id": "190",
+				"url": "https://cwe.mitre.org/data/definitions/190.html"
+			},
+			"rule_id": "G115",
+			"details": "integer overflow conversion uint64 -\u003e int",
+			"file": "E:\\pet\\horreum\\internal\\transport\\transport.go",
+			"code": "469: \t_, _ = h.Write([]byte(host))\n470: \treturn int(h.Sum64() % uint64(len(ss.shards)))\n471: }\n",
+			"line": "470",
+			"column": "12",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "HIGH",
+			"confidence": "MEDIUM",
+			"cwe": {
+				"id": "190",
+				"url": "https://cwe.mitre.org/data/definitions/190.html"
+			},
+			"rule_id": "G115",
+			"details": "integer overflow conversion uint64 -\u003e int",
+			"file": "E:\\pet\\horreum\\internal\\transport\\tcp\\server.go",
+			"code": "151: \t}\n152: \treturn int(h % uint64(numShards))\n153: }\n",
+			"line": "152",
+			"column": "12",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "HIGH",
+			"confidence": "MEDIUM",
+			"cwe": {
+				"id": "190",
+				"url": "https://cwe.mitre.org/data/definitions/190.html"
+			},
+			"rule_id": "G115",
+			"details": "integer overflow conversion uint64 -\u003e int",
+			"file": "E:\\pet\\horreum\\internal\\transport\\quic\\server.go",
+			"code": "222: \t}\n223: \treturn int(h % uint64(numShards))\n224: }\n",
+			"line": "223",
+			"column": "12",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "HIGH",
+			"confidence": "MEDIUM",
+			"cwe": {
+				"id": "190",
+				"url": "https://cwe.mitre.org/data/definitions/190.html"
+			},
+			"rule_id": "G115",
+			"details": "integer overflow conversion uint32 -\u003e uint8",
+			"file": "E:\\pet\\horreum\\internal\\arena\\arena.go",
+			"code": "237: \t\treg.meta[offset/alignBytes].Store(0)\n238: \t\treturn Handle{Offset: offset, Size: n, Region: uint8(idx)}, nil\n239: \t}\n",
+			"line": "238",
+			"column": "55",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "HIGH",
+			"confidence": "MEDIUM",
+			"cwe": {
+				"id": "190",
+				"url": "https://cwe.mitre.org/data/definitions/190.html"
+			},
+			"rule_id": "G115",
+			"details": "integer overflow conversion uint32 -\u003e uint8",
+			"file": "E:\\pet\\horreum\\internal\\arena\\arena.go",
+			"code": "221: \t\treg.meta[offset/alignBytes].Store(0)\n222: \t\treturn Handle{Offset: offset, Size: n, Region: uint8(idx)}, nil\n223: \t}\n",
+			"line": "222",
+			"column": "55",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "HIGH",
+			"confidence": "MEDIUM",
+			"cwe": {
+				"id": "190",
+				"url": "https://cwe.mitre.org/data/definitions/190.html"
+			},
+			"rule_id": "G115",
+			"details": "integer overflow conversion uint32 -\u003e uint8",
+			"file": "E:\\pet\\horreum\\internal\\arena\\arena.go",
+			"code": "219: \t\tm.liveObjs.Add(1)\n220: \t\tm.EnsureMeta(uint8(idx))\n221: \t\treg.meta[offset/alignBytes].Store(0)\n",
+			"line": "220",
+			"column": "21",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "HIGH",
+			"confidence": "MEDIUM",
+			"cwe": {
+				"id": "190",
+				"url": "https://cwe.mitre.org/data/definitions/190.html"
+			},
+			"rule_id": "G115",
+			"details": "integer overflow conversion uint16 -\u003e uint8",
+			"file": "E:\\pet\\horreum\\internal\\arena\\persist\\checkpoint.go",
+			"code": "98: \t\tentry[18] = se.Handle.Region\n99: \t\tentry[19] = uint8(se.Handle.Meta)\n100: \t\t// Inline first 4 bytes of key (zero-padded if shorter).\n",
+			"line": "99",
+			"column": "20",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "HIGH",
+			"confidence": "MEDIUM",
+			"cwe": {
+				"id": "190",
+				"url": "https://cwe.mitre.org/data/definitions/190.html"
+			},
+			"rule_id": "G115",
+			"details": "integer overflow conversion int32 -\u003e uint16",
+			"file": "E:\\pet\\horreum\\internal\\arena\\arena.go",
+			"code": "538: \tfor {\n539: \t\tcurrent := uint16(reg.meta[idx].Load())\n540: \t\tnewVal := current \u0026^ mask\n",
+			"line": "539",
+			"column": "20",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "HIGH",
+			"confidence": "MEDIUM",
+			"cwe": {
+				"id": "190",
+				"url": "https://cwe.mitre.org/data/definitions/190.html"
+			},
+			"rule_id": "G115",
+			"details": "integer overflow conversion int32 -\u003e uint16",
+			"file": "E:\\pet\\horreum\\internal\\arena\\arena.go",
+			"code": "512: \tfor {\n513: \t\tcurrent := uint16(reg.meta[idx].Load())\n514: \t\tnewVal := current | bits\n",
+			"line": "513",
+			"column": "20",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "HIGH",
+			"confidence": "MEDIUM",
+			"cwe": {
+				"id": "190",
+				"url": "https://cwe.mitre.org/data/definitions/190.html"
+			},
+			"rule_id": "G115",
+			"details": "integer overflow conversion int32 -\u003e uint16",
+			"file": "E:\\pet\\horreum\\internal\\arena\\arena.go",
+			"code": "476: \t}\n477: \treturn uint16(reg.meta[idx].Load())\n478: }\n",
+			"line": "477",
+			"column": "15",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "HIGH",
+			"confidence": "MEDIUM",
+			"cwe": {
+				"id": "190",
+				"url": "https://cwe.mitre.org/data/definitions/190.html"
+			},
+			"rule_id": "G115",
+			"details": "integer overflow conversion int -\u003e uint64",
+			"file": "E:\\pet\\horreum\\internal\\index\\index.go",
+			"code": "207: func NewForCount(n int) *HashIndex {\n208: \tcap := nextPowerOfTwo(uint64(n) * 2)\n209: \tif cap \u003c 8 {\n",
+			"line": "208",
+			"column": "30",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "HIGH",
+			"confidence": "MEDIUM",
+			"cwe": {
+				"id": "190",
+				"url": "https://cwe.mitre.org/data/definitions/190.html"
+			},
+			"rule_id": "G115",
+			"details": "integer overflow conversion int -\u003e uint64",
+			"file": "E:\\pet\\horreum\\internal\\index\\index.go",
+			"code": "27: func New(initialBuckets int) *HashIndex {\n28: \tcap := nextPowerOfTwo(uint64(initialBuckets))\n29: \treturn \u0026HashIndex{\n",
+			"line": "28",
+			"column": "30",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "HIGH",
+			"confidence": "MEDIUM",
+			"cwe": {
+				"id": "190",
+				"url": "https://cwe.mitre.org/data/definitions/190.html"
+			},
+			"rule_id": "G115",
+			"details": "integer overflow conversion int -\u003e uint64",
+			"file": "E:\\pet\\horreum\\internal\\arena\\persist\\persist.go",
+			"code": "156: func (pm *PersistentManager) syncLiveObjects(idx *index.HashIndex) {\n157: \tpm.mgr.SetLiveObjects(uint64(idx.Count()))\n158: \tvar used uint64\n",
+			"line": "157",
+			"column": "30",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "HIGH",
+			"confidence": "MEDIUM",
+			"cwe": {
+				"id": "190",
+				"url": "https://cwe.mitre.org/data/definitions/190.html"
+			},
+			"rule_id": "G115",
+			"details": "integer overflow conversion int -\u003e uint64",
+			"file": "E:\\pet\\horreum\\cmd\\horreum\\main.go",
+			"code": "501: \t\tif idx != nil {\n502: \t\t\tmetrics.SetGauge(indexKeysGauge, uint64(idx.Count()))\n503: \t\t}\n",
+			"line": "502",
+			"column": "43",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "HIGH",
+			"confidence": "MEDIUM",
+			"cwe": {
+				"id": "190",
+				"url": "https://cwe.mitre.org/data/definitions/190.html"
+			},
+			"rule_id": "G115",
+			"details": "integer overflow conversion int -\u003e uint64",
+			"file": "E:\\pet\\horreum\\cmd\\horreum-bench\\main.go",
+			"code": "143: \t\t\t\ttotalOpsDone.Add(1)\n144: \t\t\t\ttotalLiveSize.Add(uint64(sz))\n145: \n",
+			"line": "144",
+			"column": "29",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "HIGH",
+			"confidence": "MEDIUM",
+			"cwe": {
+				"id": "190",
+				"url": "https://cwe.mitre.org/data/definitions/190.html"
+			},
+			"rule_id": "G115",
+			"details": "integer overflow conversion int -\u003e uint32",
+			"file": "E:\\pet\\horreum\\internal\\proto\\proto.go",
+			"code": "125: \tbinary.LittleEndian.PutUint16(dst[off+4:off+6], uint16(len(key)))\n126: \tbinary.LittleEndian.PutUint32(dst[off+6:off+10], uint32(len(value)))\n127: \tcopy(dst[off+hdrLen:off+hdrLen+len(key)], key)\n",
+			"line": "126",
+			"column": "57",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "HIGH",
+			"confidence": "MEDIUM",
+			"cwe": {
+				"id": "190",
+				"url": "https://cwe.mitre.org/data/definitions/190.html"
+			},
+			"rule_id": "G115",
+			"details": "integer overflow conversion int -\u003e uint32",
+			"file": "E:\\pet\\horreum\\internal\\proto\\proto.go",
+			"code": "104: \tbinary.LittleEndian.PutUint16(dst[off+4:off+6], uint16(len(key)))\n105: \tbinary.LittleEndian.PutUint32(dst[off+6:off+10], uint32(len(value)))\n106: \tcopy(dst[off+hdrLen:off+hdrLen+len(key)], key)\n",
+			"line": "105",
+			"column": "57",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "HIGH",
+			"confidence": "MEDIUM",
+			"cwe": {
+				"id": "190",
+				"url": "https://cwe.mitre.org/data/definitions/190.html"
+			},
+			"rule_id": "G115",
+			"details": "integer overflow conversion int -\u003e uint32",
+			"file": "E:\\pet\\horreum\\internal\\compress\\lz4.go",
+			"code": "204: \t\tif sp \u003c= mfLimit {\n205: \t\t\thashTable[hashU32(read32(src[sp-2:]))] = uint32(sp - 2)\n206: \t\t}\n",
+			"line": "205",
+			"column": "51",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "HIGH",
+			"confidence": "MEDIUM",
+			"cwe": {
+				"id": "190",
+				"url": "https://cwe.mitre.org/data/definitions/190.html"
+			},
+			"rule_id": "G115",
+			"details": "integer overflow conversion int -\u003e uint32",
+			"file": "E:\\pet\\horreum\\internal\\arena\\persist\\wal.go",
+			"code": "222: \tif op == walOpSet {\n223: \t\tbinary.LittleEndian.PutUint32(hdr[7:11], uint32(len(value)))\n224: \t\tbinary.LittleEndian.PutUint32(hdr[11:15], h.Offset)\n",
+			"line": "223",
+			"column": "50",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "HIGH",
+			"confidence": "MEDIUM",
+			"cwe": {
+				"id": "190",
+				"url": "https://cwe.mitre.org/data/definitions/190.html"
+			},
+			"rule_id": "G115",
+			"details": "integer overflow conversion int -\u003e uint32",
+			"file": "E:\\pet\\horreum\\internal\\arena\\persist\\checkpoint.go",
+			"code": "76: \tbinary.LittleEndian.PutUint32(buf[4:8], checkpointVersion)\n77: \tbinary.LittleEndian.PutUint32(buf[8:12], uint32(len(snap)))\n78: \n",
+			"line": "77",
+			"column": "49",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "HIGH",
+			"confidence": "MEDIUM",
+			"cwe": {
+				"id": "190",
+				"url": "https://cwe.mitre.org/data/definitions/190.html"
+			},
+			"rule_id": "G115",
+			"details": "integer overflow conversion int -\u003e uint32",
+			"file": "E:\\pet\\horreum\\internal\\arena\\arena.go",
+			"code": "534: \tidx := h.Offset / alignBytes\n535: \tif idx \u003e= uint32(len(reg.meta)) {\n536: \t\treturn\n",
+			"line": "535",
+			"column": "18",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "HIGH",
+			"confidence": "MEDIUM",
+			"cwe": {
+				"id": "190",
+				"url": "https://cwe.mitre.org/data/definitions/190.html"
+			},
+			"rule_id": "G115",
+			"details": "integer overflow conversion int -\u003e uint32",
+			"file": "E:\\pet\\horreum\\internal\\arena\\arena.go",
+			"code": "508: \tidx := h.Offset / alignBytes\n509: \tif idx \u003e= uint32(len(reg.meta)) {\n510: \t\treturn\n",
+			"line": "509",
+			"column": "18",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "HIGH",
+			"confidence": "MEDIUM",
+			"cwe": {
+				"id": "190",
+				"url": "https://cwe.mitre.org/data/definitions/190.html"
+			},
+			"rule_id": "G115",
+			"details": "integer overflow conversion int -\u003e uint32",
+			"file": "E:\\pet\\horreum\\internal\\arena\\arena.go",
+			"code": "491: \tidx := h.Offset / alignBytes\n492: \tif idx \u003e= uint32(len(reg.meta)) {\n493: \t\treturn false\n",
+			"line": "492",
+			"column": "18",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "HIGH",
+			"confidence": "MEDIUM",
+			"cwe": {
+				"id": "190",
+				"url": "https://cwe.mitre.org/data/definitions/190.html"
+			},
+			"rule_id": "G115",
+			"details": "integer overflow conversion int -\u003e uint32",
+			"file": "E:\\pet\\horreum\\internal\\arena\\arena.go",
+			"code": "473: \tidx := h.Offset / alignBytes\n474: \tif idx \u003e= uint32(len(reg.meta)) {\n475: \t\treturn 0\n",
+			"line": "474",
+			"column": "18",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "HIGH",
+			"confidence": "MEDIUM",
+			"cwe": {
+				"id": "190",
+				"url": "https://cwe.mitre.org/data/definitions/190.html"
+			},
+			"rule_id": "G115",
+			"details": "integer overflow conversion int -\u003e uint32",
+			"file": "E:\\pet\\horreum\\internal\\arena\\arena.go",
+			"code": "456: \tidx := h.Offset / alignBytes\n457: \tif idx \u003e= uint32(len(reg.meta)) {\n458: \t\treturn\n",
+			"line": "457",
+			"column": "18",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "HIGH",
+			"confidence": "MEDIUM",
+			"cwe": {
+				"id": "190",
+				"url": "https://cwe.mitre.org/data/definitions/190.html"
+			},
+			"rule_id": "G115",
+			"details": "integer overflow conversion int -\u003e uint32",
+			"file": "E:\\pet\\horreum\\internal\\arena\\arena.go",
+			"code": "432: \tidx := h.Offset / alignBytes\n433: \tif idx \u003e= uint32(len(reg.meta)) {\n434: \t\treturn\n",
+			"line": "433",
+			"column": "18",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "HIGH",
+			"confidence": "MEDIUM",
+			"cwe": {
+				"id": "190",
+				"url": "https://cwe.mitre.org/data/definitions/190.html"
+			},
+			"rule_id": "G115",
+			"details": "integer overflow conversion int -\u003e uint32",
+			"file": "E:\\pet\\horreum\\internal\\arena\\arena.go",
+			"code": "414: \tidx := h.Offset / alignBytes\n415: \tif idx \u003e= uint32(len(reg.meta)) {\n416: \t\treturn 0\n",
+			"line": "415",
+			"column": "18",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "HIGH",
+			"confidence": "MEDIUM",
+			"cwe": {
+				"id": "190",
+				"url": "https://cwe.mitre.org/data/definitions/190.html"
+			},
+			"rule_id": "G115",
+			"details": "integer overflow conversion int -\u003e uint32",
+			"file": "E:\\pet\\horreum\\internal\\arena\\arena.go",
+			"code": "389: \tidx := h.Offset / alignBytes\n390: \tif idx \u003e= uint32(len(reg.meta)) {\n391: \t\treturn 0\n",
+			"line": "390",
+			"column": "18",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "HIGH",
+			"confidence": "MEDIUM",
+			"cwe": {
+				"id": "190",
+				"url": "https://cwe.mitre.org/data/definitions/190.html"
+			},
+			"rule_id": "G115",
+			"details": "integer overflow conversion int -\u003e uint32",
+			"file": "E:\\pet\\horreum\\internal\\arena\\arena.go",
+			"code": "248: \t}\n249: \tr.meta = make([]atomic.Int32, uint32(len(r.data))/alignBytes)\n250: \tnewRegions := make([]*region, len(old)+1)\n",
+			"line": "249",
+			"column": "38",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "HIGH",
+			"confidence": "MEDIUM",
+			"cwe": {
+				"id": "190",
+				"url": "https://cwe.mitre.org/data/definitions/190.html"
+			},
+			"rule_id": "G115",
+			"details": "integer overflow conversion int -\u003e uint32",
+			"file": "E:\\pet\\horreum\\internal\\arena\\arena.go",
+			"code": "240: \told := m.loadRegions()\n241: \tnewIdx := uint32(len(old))\n242: \tif newIdx \u003e= 256 {\n",
+			"line": "241",
+			"column": "18",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "HIGH",
+			"confidence": "MEDIUM",
+			"cwe": {
+				"id": "190",
+				"url": "https://cwe.mitre.org/data/definitions/190.html"
+			},
+			"rule_id": "G115",
+			"details": "integer overflow conversion int -\u003e uint32",
+			"file": "E:\\pet\\horreum\\internal\\arena\\arena.go",
+			"code": "209: func (m *Manager) Put(value []byte) (Handle, error) {\n210: \tn := uint32(len(value))\n211: \tif n \u003e MaxObjectSize {\n",
+			"line": "210",
+			"column": "13",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "HIGH",
+			"confidence": "MEDIUM",
+			"cwe": {
+				"id": "190",
+				"url": "https://cwe.mitre.org/data/definitions/190.html"
+			},
+			"rule_id": "G115",
+			"details": "integer overflow conversion int -\u003e uint32",
+			"file": "E:\\pet\\horreum\\internal\\arena\\arena.go",
+			"code": "205: \t}\n206: \treg.meta = make([]atomic.Int32, uint32(len(reg.data))/alignBytes)\n207: }\n",
+			"line": "206",
+			"column": "40",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "HIGH",
+			"confidence": "MEDIUM",
+			"cwe": {
+				"id": "190",
+				"url": "https://cwe.mitre.org/data/definitions/190.html"
+			},
+			"rule_id": "G115",
+			"details": "integer overflow conversion int -\u003e uint32",
+			"file": "E:\\pet\\horreum\\internal\\arena\\arena.go",
+			"code": "174: \tr.alloc.Skip(persistReservedBytes(regionSize))\n175: \tr.meta = make([]atomic.Int32, uint32(len(r.data))/alignBytes)\n176: \tm := \u0026Manager{\n",
+			"line": "175",
+			"column": "38",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "HIGH",
+			"confidence": "MEDIUM",
+			"cwe": {
+				"id": "190",
+				"url": "https://cwe.mitre.org/data/definitions/190.html"
+			},
+			"rule_id": "G115",
+			"details": "integer overflow conversion int -\u003e uint32",
+			"file": "E:\\pet\\horreum\\internal\\arena\\arena.go",
+			"code": "141: \t}\n142: \tr.meta = make([]atomic.Int32, uint32(len(r.data))/alignBytes)\n143: \tregions := []*region{r}\n",
+			"line": "142",
+			"column": "38",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "HIGH",
+			"confidence": "MEDIUM",
+			"cwe": {
+				"id": "190",
+				"url": "https://cwe.mitre.org/data/definitions/190.html"
+			},
+			"rule_id": "G115",
+			"details": "integer overflow conversion int -\u003e uint32",
+			"file": "E:\\pet\\horreum\\examples\\client.go",
+			"code": "57: \tbinary.LittleEndian.PutUint16(header[4:6], uint16(len(key)))\n58: \tbinary.LittleEndian.PutUint32(header[6:10], uint32(len(val)))\n59: \n",
+			"line": "58",
+			"column": "52",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "HIGH",
+			"confidence": "MEDIUM",
+			"cwe": {
+				"id": "190",
+				"url": "https://cwe.mitre.org/data/definitions/190.html"
+			},
+			"rule_id": "G115",
+			"details": "integer overflow conversion int -\u003e uint32",
+			"file": "E:\\pet\\horreum\\cmd\\horreum-bench\\main.go",
+			"code": "141: \t\t\t\t}\n142: \t\t\t\thandles = append(handles, entry{h, uint32(sz)})\n143: \t\t\t\ttotalOpsDone.Add(1)\n",
+			"line": "142",
+			"column": "46",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "HIGH",
+			"confidence": "MEDIUM",
+			"cwe": {
+				"id": "190",
+				"url": "https://cwe.mitre.org/data/definitions/190.html"
+			},
+			"rule_id": "G115",
+			"details": "integer overflow conversion int -\u003e uint16",
+			"file": "E:\\pet\\horreum\\internal\\proto\\proto.go",
+			"code": "124: \tdst[off+3] = status\n125: \tbinary.LittleEndian.PutUint16(dst[off+4:off+6], uint16(len(key)))\n126: \tbinary.LittleEndian.PutUint32(dst[off+6:off+10], uint32(len(value)))\n",
+			"line": "125",
+			"column": "56",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "HIGH",
+			"confidence": "MEDIUM",
+			"cwe": {
+				"id": "190",
+				"url": "https://cwe.mitre.org/data/definitions/190.html"
+			},
+			"rule_id": "G115",
+			"details": "integer overflow conversion int -\u003e uint16",
+			"file": "E:\\pet\\horreum\\internal\\proto\\proto.go",
+			"code": "103: \tdst[off+3] = 0\n104: \tbinary.LittleEndian.PutUint16(dst[off+4:off+6], uint16(len(key)))\n105: \tbinary.LittleEndian.PutUint32(dst[off+6:off+10], uint32(len(value)))\n",
+			"line": "104",
+			"column": "56",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "HIGH",
+			"confidence": "MEDIUM",
+			"cwe": {
+				"id": "190",
+				"url": "https://cwe.mitre.org/data/definitions/190.html"
+			},
+			"rule_id": "G115",
+			"details": "integer overflow conversion int -\u003e uint16",
+			"file": "E:\\pet\\horreum\\internal\\index\\index.go",
+			"code": "181: \t\t}\n182: \t\tif h.buckets[idx].Hash == hash \u0026\u0026 h.buckets[idx].KeyLen == uint16(len(key)) \u0026\u0026 bytesEqual(h.keys[idx], key) {\n183: \t\t\t// Duplicate — caller should reject; return false.\n",
+			"line": "182",
+			"column": "68",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "HIGH",
+			"confidence": "MEDIUM",
+			"cwe": {
+				"id": "190",
+				"url": "https://cwe.mitre.org/data/definitions/190.html"
+			},
+			"rule_id": "G115",
+			"details": "integer overflow conversion int -\u003e uint16",
+			"file": "E:\\pet\\horreum\\internal\\index\\index.go",
+			"code": "176: \t\tif h.keys[idx] == nil {\n177: \t\t\th.buckets[idx] = Entry{Hash: hash, KeyLen: uint16(len(key)), Handle: hd}\n178: \t\t\th.keys[idx] = key\n",
+			"line": "177",
+			"column": "53",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "HIGH",
+			"confidence": "MEDIUM",
+			"cwe": {
+				"id": "190",
+				"url": "https://cwe.mitre.org/data/definitions/190.html"
+			},
+			"rule_id": "G115",
+			"details": "integer overflow conversion int -\u003e uint16",
+			"file": "E:\\pet\\horreum\\internal\\index\\index.go",
+			"code": "84: \t\t}\n85: \t\tif h.buckets[idx].Hash == hash \u0026\u0026 h.buckets[idx].KeyLen == uint16(len(key)) \u0026\u0026 bytesEqual(h.keys[idx], key) {\n86: \t\t\thd := h.buckets[idx].Handle\n",
+			"line": "85",
+			"column": "68",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "HIGH",
+			"confidence": "MEDIUM",
+			"cwe": {
+				"id": "190",
+				"url": "https://cwe.mitre.org/data/definitions/190.html"
+			},
+			"rule_id": "G115",
+			"details": "integer overflow conversion int -\u003e uint16",
+			"file": "E:\\pet\\horreum\\internal\\index\\index.go",
+			"code": "69: \t\t}\n70: \t\tif h.buckets[idx].Hash == hash \u0026\u0026 h.buckets[idx].KeyLen == uint16(len(key)) \u0026\u0026 bytesEqual(h.keys[idx], key) {\n71: \t\t\treturn h.buckets[idx].Handle, true\n",
+			"line": "70",
+			"column": "68",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "HIGH",
+			"confidence": "MEDIUM",
+			"cwe": {
+				"id": "190",
+				"url": "https://cwe.mitre.org/data/definitions/190.html"
+			},
+			"rule_id": "G115",
+			"details": "integer overflow conversion int -\u003e uint16",
+			"file": "E:\\pet\\horreum\\internal\\index\\index.go",
+			"code": "51: \t\t}\n52: \t\tif h.buckets[idx].Hash == hash \u0026\u0026 h.buckets[idx].KeyLen == uint16(len(key)) \u0026\u0026 bytesEqual(h.keys[idx], key) {\n53: \t\t\t// Update existing.\n",
+			"line": "52",
+			"column": "68",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "HIGH",
+			"confidence": "MEDIUM",
+			"cwe": {
+				"id": "190",
+				"url": "https://cwe.mitre.org/data/definitions/190.html"
+			},
+			"rule_id": "G115",
+			"details": "integer overflow conversion int -\u003e uint16",
+			"file": "E:\\pet\\horreum\\internal\\index\\index.go",
+			"code": "46: \t\t\t// Empty slot — insert.\n47: \t\t\th.buckets[idx] = Entry{Hash: hash, KeyLen: uint16(len(key)), Handle: hd}\n48: \t\t\th.keys[idx] = key\n",
+			"line": "47",
+			"column": "53",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "HIGH",
+			"confidence": "MEDIUM",
+			"cwe": {
+				"id": "190",
+				"url": "https://cwe.mitre.org/data/definitions/190.html"
+			},
+			"rule_id": "G115",
+			"details": "integer overflow conversion int -\u003e uint16",
+			"file": "E:\\pet\\horreum\\internal\\arena\\persist\\wal.go",
+			"code": "220: \thdr[4] = op\n221: \tbinary.LittleEndian.PutUint16(hdr[5:7], uint16(len(key)))\n222: \tif op == walOpSet {\n",
+			"line": "221",
+			"column": "48",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "HIGH",
+			"confidence": "MEDIUM",
+			"cwe": {
+				"id": "190",
+				"url": "https://cwe.mitre.org/data/definitions/190.html"
+			},
+			"rule_id": "G115",
+			"details": "integer overflow conversion int -\u003e uint16",
+			"file": "E:\\pet\\horreum\\internal\\arena\\persist\\checkpoint.go",
+			"code": "161: \t\t\t\tHash:   hash,\n162: \t\t\t\tKeyLen: uint16(keyLen),\n163: \t\t\t\tHandle: arena.Handle{\n",
+			"line": "162",
+			"column": "19",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "HIGH",
+			"confidence": "MEDIUM",
+			"cwe": {
+				"id": "190",
+				"url": "https://cwe.mitre.org/data/definitions/190.html"
+			},
+			"rule_id": "G115",
+			"details": "integer overflow conversion int -\u003e uint16",
+			"file": "E:\\pet\\horreum\\internal\\arena\\persist\\checkpoint.go",
+			"code": "94: \t\tbinary.LittleEndian.PutUint64(entry[0:8], se.Hash)\n95: \t\tbinary.LittleEndian.PutUint16(entry[8:10], uint16(len(se.Key)))\n96: \t\tbinary.LittleEndian.PutUint32(entry[10:14], se.Handle.Offset)\n",
+			"line": "95",
+			"column": "52",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "HIGH",
+			"confidence": "MEDIUM",
+			"cwe": {
+				"id": "190",
+				"url": "https://cwe.mitre.org/data/definitions/190.html"
+			},
+			"rule_id": "G115",
+			"details": "integer overflow conversion int -\u003e uint16",
+			"file": "E:\\pet\\horreum\\examples\\client.go",
+			"code": "56: \theader[3] = 0\n57: \tbinary.LittleEndian.PutUint16(header[4:6], uint16(len(key)))\n58: \tbinary.LittleEndian.PutUint32(header[6:10], uint32(len(val)))\n",
+			"line": "57",
+			"column": "51",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "HIGH",
+			"confidence": "MEDIUM",
+			"cwe": {
+				"id": "190",
+				"url": "https://cwe.mitre.org/data/definitions/190.html"
+			},
+			"rule_id": "G115",
+			"details": "integer overflow conversion int -\u003e byte",
+			"file": "E:\\pet\\horreum\\internal\\compress\\lz4.go",
+			"code": "266: \t}\n267: \tdp = appendByte(dst, dp, byte(length))\n268: \treturn dp\n",
+			"line": "267",
+			"column": "31",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "HIGH",
+			"confidence": "MEDIUM",
+			"cwe": {
+				"id": "190",
+				"url": "https://cwe.mitre.org/data/definitions/190.html"
+			},
+			"rule_id": "G115",
+			"details": "integer overflow conversion int -\u003e byte",
+			"file": "E:\\pet\\horreum\\internal\\compress\\lz4.go",
+			"code": "190: \t\tdp = appendByte(dst, dp, byte(offset))\n191: \t\tdp = appendByte(dst, dp, byte(offset\u003e\u003e8))\n192: \n",
+			"line": "191",
+			"column": "32",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "HIGH",
+			"confidence": "MEDIUM",
+			"cwe": {
+				"id": "190",
+				"url": "https://cwe.mitre.org/data/definitions/190.html"
+			},
+			"rule_id": "G115",
+			"details": "integer overflow conversion int -\u003e byte",
+			"file": "E:\\pet\\horreum\\internal\\compress\\lz4.go",
+			"code": "189: \t\toffset := sp - ref\n190: \t\tdp = appendByte(dst, dp, byte(offset))\n191: \t\tdp = appendByte(dst, dp, byte(offset\u003e\u003e8))\n",
+			"line": "190",
+			"column": "32",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "HIGH",
+			"confidence": "MEDIUM",
+			"cwe": {
+				"id": "190",
+				"url": "https://cwe.mitre.org/data/definitions/190.html"
+			},
+			"rule_id": "G115",
+			"details": "integer overflow conversion int -\u003e byte",
+			"file": "E:\\pet\\horreum\\internal\\compress\\lz4.go",
+			"code": "173: \t\t} else {\n174: \t\t\ttoken |= byte(ml)\n175: \t\t}\n",
+			"line": "174",
+			"column": "17",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "HIGH",
+			"confidence": "MEDIUM",
+			"cwe": {
+				"id": "338",
+				"url": "https://cwe.mitre.org/data/definitions/338.html"
+			},
+			"rule_id": "G404",
+			"details": "Use of weak random number generator (math/rand or math/rand/v2 instead of crypto/rand)",
+			"file": "E:\\pet\\horreum\\cmd\\horreum-bench\\main.go",
+			"code": "121: \t\t\tdefer wg.Done()\n122: \t\t\trng := rand.New(rand.NewSource(int64(id)))\n123: \t\t\ttype entry struct {\n",
+			"line": "122",
+			"column": "11",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "HIGH",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "200",
+				"url": "https://cwe.mitre.org/data/definitions/200.html"
+			},
+			"rule_id": "G108",
+			"details": "Profiling endpoint is automatically exposed on /debug/pprof",
+			"file": "E:\\pet\\horreum\\cmd\\horreum\\main.go",
+			"code": "29: \t\"net\"\n30: \t_ \"net/http/pprof\"\n31: \t\"os\"\n",
+			"line": "30",
+			"column": "2",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "22",
+				"url": "https://cwe.mitre.org/data/definitions/22.html"
+			},
+			"rule_id": "G304",
+			"details": "Potential file inclusion via variable",
+			"file": "E:\\pet\\horreum\\internal\\encrypt\\encrypt.go",
+			"code": "129: func LoadKey(path string) ([]byte, error) {\n130: \tkey, err := os.ReadFile(path)\n131: \tif err != nil {\n",
+			"line": "130",
+			"column": "14",
+			"nosec": false,
+			"suppressions": null,
+			"autofix": "Consider using os.Root to scope file access under a fixed root (Go \u003e=1.24). Prefer root.Open/root.Stat over os.Open/os.Stat to prevent directory traversal."
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "22",
+				"url": "https://cwe.mitre.org/data/definitions/22.html"
+			},
+			"rule_id": "G304",
+			"details": "Potential file inclusion via variable",
+			"file": "E:\\pet\\horreum\\internal\\arena\\persist\\wal.go",
+			"code": "101: func OpenWAL(path string, maxLen int64) (*WAL, error) {\n102: \tf, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o644)\n103: \tif err != nil {\n",
+			"line": "102",
+			"column": "12",
+			"nosec": false,
+			"suppressions": null,
+			"autofix": "Consider using os.Root to scope file access under a fixed root (Go \u003e=1.24). Prefer root.Open/root.Stat over os.Open/os.Stat to prevent directory traversal."
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "22",
+				"url": "https://cwe.mitre.org/data/definitions/22.html"
+			},
+			"rule_id": "G304",
+			"details": "Potential file inclusion via variable",
+			"file": "E:\\pet\\horreum\\internal\\arena\\mmap_other.go",
+			"code": "21: \tif create {\n22: \t\tf, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o644)\n23: \t\tif err != nil {\n",
+			"line": "22",
+			"column": "13",
+			"nosec": false,
+			"suppressions": null,
+			"autofix": "Consider using os.Root to scope file access under a fixed root (Go \u003e=1.24). Prefer root.Open/root.Stat over os.Open/os.Stat to prevent directory traversal."
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "22",
+				"url": "https://cwe.mitre.org/data/definitions/22.html"
+			},
+			"rule_id": "G304",
+			"details": "Potential file inclusion via variable",
+			"file": "E:\\pet\\horreum\\cmd\\horreum\\main.go",
+			"code": "208: \n209: \tdata, err := os.ReadFile(yamlPath)\n210: \tif err != nil {\n",
+			"line": "209",
+			"column": "15",
+			"nosec": false,
+			"suppressions": null,
+			"autofix": "Consider using os.Root to scope file access under a fixed root (Go \u003e=1.24). Prefer root.Open/root.Stat over os.Open/os.Stat to prevent directory traversal."
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G302",
+			"details": "Expect file permissions to be 0600 or less",
+			"file": "E:\\pet\\horreum\\internal\\arena\\persist\\wal.go",
+			"code": "101: func OpenWAL(path string, maxLen int64) (*WAL, error) {\n102: \tf, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o644)\n103: \tif err != nil {\n",
+			"line": "102",
+			"column": "12",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G302",
+			"details": "Expect file permissions to be 0600 or less",
+			"file": "E:\\pet\\horreum\\internal\\arena\\mmap_other.go",
+			"code": "21: \tif create {\n22: \t\tf, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o644)\n23: \t\tif err != nil {\n",
+			"line": "22",
+			"column": "13",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G301",
+			"details": "Expect directory permissions to be 0750 or less",
+			"file": "E:\\pet\\horreum\\internal\\arena\\persist\\recovery.go",
+			"code": "48: \t}\n49: \tif err := os.MkdirAll(dir, 0o755); err != nil {\n50: \t\treturn nil, fmt.Errorf(\"persist: mkdir %s: %w\", dir, err)\n",
+			"line": "49",
+			"column": "12",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "MEDIUM",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "276",
+				"url": "https://cwe.mitre.org/data/definitions/276.html"
+			},
+			"rule_id": "G301",
+			"details": "Expect directory permissions to be 0750 or less",
+			"file": "E:\\pet\\horreum\\internal\\arena\\persist\\persist.go",
+			"code": "75: \t}\n76: \tif err := os.MkdirAll(dir, 0o755); err != nil {\n77: \t\treturn nil, fmt.Errorf(\"persist: mkdir %s: %w\", dir, err)\n",
+			"line": "76",
+			"column": "12",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "LOW",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "242",
+				"url": "https://cwe.mitre.org/data/definitions/242.html"
+			},
+			"rule_id": "G103",
+			"details": "Use of unsafe calls should be audited",
+			"file": "E:\\pet\\horreum\\internal\\arena\\view.go",
+			"code": "17: \tbase := unsafe.Pointer(\u0026data[offset])\n18: \treturn unsafe.Slice((*byte)(base), size)\n19: }\n",
+			"line": "18",
+			"column": "9",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "LOW",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "242",
+				"url": "https://cwe.mitre.org/data/definitions/242.html"
+			},
+			"rule_id": "G103",
+			"details": "Use of unsafe calls should be audited",
+			"file": "E:\\pet\\horreum\\internal\\arena\\view.go",
+			"code": "16: \t// unsafe.Slice creates a slice header on the stack.\n17: \tbase := unsafe.Pointer(\u0026data[offset])\n18: \treturn unsafe.Slice((*byte)(base), size)\n",
+			"line": "17",
+			"column": "10",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "LOW",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "703",
+				"url": "https://cwe.mitre.org/data/definitions/703.html"
+			},
+			"rule_id": "G104",
+			"details": "Errors unhandled",
+			"file": "E:\\pet\\horreum\\cmd\\horreum-bench\\main.go",
+			"code": "176: \n177: \tm.Close()\n178: \t// Force GC to release Go-side allocations from the test.\n",
+			"line": "177",
+			"column": "2",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "LOW",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "703",
+				"url": "https://cwe.mitre.org/data/definitions/703.html"
+			},
+			"rule_id": "G104",
+			"details": "Errors unhandled",
+			"file": "E:\\pet\\horreum\\cmd\\horreum-bench\\main.go",
+			"code": "148: \t\t\t\t\tidx := rng.Intn(len(handles))\n149: \t\t\t\t\tm.Free(handles[idx].h)\n150: \t\t\t\t\ttotalLiveSize.Add(^uint64(handles[idx].sz) + 1) // subtract\n",
+			"line": "149",
+			"column": "6",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "LOW",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "703",
+				"url": "https://cwe.mitre.org/data/definitions/703.html"
+			},
+			"rule_id": "G104",
+			"details": "Errors unhandled",
+			"file": "E:\\pet\\horreum\\cmd\\horreum-bench\\main.go",
+			"code": "131: \t\t\t\tdata := make([]byte, sz)\n132: \t\t\t\trng.Read(data)\n133: \n",
+			"line": "132",
+			"column": "5",
+			"nosec": false,
+			"suppressions": null
+		},
+		{
+			"severity": "LOW",
+			"confidence": "HIGH",
+			"cwe": {
+				"id": "703",
+				"url": "https://cwe.mitre.org/data/definitions/703.html"
+			},
+			"rule_id": "G104",
+			"details": "Errors unhandled",
+			"file": "E:\\pet\\horreum\\cmd\\horreum-bench\\main.go",
+			"code": "64: \t\tfor _, h := range handles {\n65: \t\t\tm.View(h)\n66: \t\t}\n",
+			"line": "65",
+			"column": "4",
+			"nosec": false,
+			"suppressions": null
+		}
+	],
+	"Stats": {
+		"files": 37,
+		"lines": 7286,
+		"nosec": 0,
+		"found": 73
+	},
+	"GosecVersion": "dev"
+}

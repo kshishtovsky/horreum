@@ -12,6 +12,7 @@ package quic
 import (
 	"context"
 	"crypto/tls"
+	"encoding/binary"
 	"errors"
 	"io"
 	"log/slog"
@@ -94,6 +95,9 @@ func NewTransport(addr string, router api.ShardRouter, cert *tls.Certificate, re
 		workers:  transport.NewWorkerPool(numShards, 4096),
 	}
 	t.workers.Start()
+	if ss, ok := router.(*transport.ShardSet); ok {
+		ss.StartGCLoop(t.workers, 100)
+	}
 	return t, nil
 }
 
@@ -277,13 +281,31 @@ func handleFrameQUIC(router api.ShardRouter, fr *proto.Frame, writeBuf *[]byte, 
 		rec.ObserveGet(status, time.Since(t0))
 		return true
 	case proto.OpSet:
-		if _, err := cache.Set(fr.Key, fr.Value); err != nil {
+		if _, err := cache.Set(fr.Key, fr.Value, 0); err != nil {
 			status = "err"
 			*writeBuf = proto.EncodeResponse(*writeBuf, proto.OpSet, 1, fr.Key, nil)
 			rec.ObserveSet(status, time.Since(t0))
 			return true
 		}
 		*writeBuf = proto.EncodeResponse(*writeBuf, proto.OpSet, 0, fr.Key, nil)
+		rec.ObserveSet(status, time.Since(t0))
+		return true
+	case proto.OpSetEx:
+		if len(fr.Value) < 4 {
+			status = "err"
+			*writeBuf = proto.EncodeResponse(*writeBuf, proto.OpSetEx, 1, fr.Key, nil)
+			rec.ObserveSet(status, time.Since(t0))
+			return true
+		}
+		ttl := binary.LittleEndian.Uint32(fr.Value[:4])
+		val := fr.Value[4:]
+		if _, err := cache.Set(fr.Key, val, ttl); err != nil {
+			status = "err"
+			*writeBuf = proto.EncodeResponse(*writeBuf, proto.OpSetEx, 1, fr.Key, nil)
+			rec.ObserveSet(status, time.Since(t0))
+			return true
+		}
+		*writeBuf = proto.EncodeResponse(*writeBuf, proto.OpSetEx, 0, fr.Key, nil)
 		rec.ObserveSet(status, time.Since(t0))
 		return true
 	case proto.OpDel:

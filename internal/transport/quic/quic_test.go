@@ -13,10 +13,11 @@ import (
 
 type mockCache struct{}
 
-func (m *mockCache) Set(key, value []byte) ([]byte, error) { return value, nil }
-func (m *mockCache) Get(key []byte) ([]byte, error)        { return nil, api.ErrNotFound }
-func (m *mockCache) Delete(key []byte) error               { return nil }
-func (m *mockCache) Close() error                          { return nil }
+func (m *mockCache) Set(k, v []byte, ttlSeconds uint32) ([]byte, error) { return nil, nil }
+func (m *mockCache) Get(k []byte) ([]byte, error)       { return nil, api.ErrNotFound }
+func (m *mockCache) Delete(k []byte) error              { return nil }
+func (m *mockCache) DeleteExpired(limit int) error      { return nil }
+func (m *mockCache) Close() error                       { return nil }
 
 type mockRouter struct{}
 
@@ -91,7 +92,7 @@ func TestHandleFrameQUICGetHit(t *testing.T) {
 	if !handleFrameQUIC(mr, frGet, &buf, noopRecorder{}, 0) {
 		t.Error("handleFrameQUIC returned false on Get-hit")
 	}
-	if !bytes.Contains(buf, []byte("hit-value")) {
+	if !bytes.Contains(buf, []byte("hit")) {
 		t.Errorf("writeBuf did not contain hit value: %q", buf)
 	}
 }
@@ -148,7 +149,7 @@ func TestErrNoCertIsExported(t *testing.T) {
 	}
 }
 
-// hitRouter returns a cache that always hits with "hit-value".
+// hitRouter returns a cache that always hits with "hit".
 type hitRouter struct{}
 
 func (h *hitRouter) CacheFor(key []byte) api.CacheService { return &hitCache{} }
@@ -157,9 +158,8 @@ func (h *hitRouter) ShardCount() int                      { return 1 }
 
 type hitCache struct{}
 
-func (h *hitCache) Set(key, value []byte) ([]byte, error) { return value, nil }
-func (h *hitCache) Get(key []byte) ([]byte, error) {
-	return []byte("hit-value"), nil
-}
-func (h *hitCache) Delete(key []byte) error { return nil }
-func (h *hitCache) Close() error            { return nil }
+func (m *hitCache) Set(k, v []byte, ttlSeconds uint32) ([]byte, error) { return nil, nil }
+func (m *hitCache) Get(k []byte) ([]byte, error)       { return []byte("hit"), nil }
+func (m *hitCache) Delete(k []byte) error              { return nil }
+func (m *hitCache) DeleteExpired(limit int) error      { return nil }
+func (m *hitCache) Close() error                       { return nil }

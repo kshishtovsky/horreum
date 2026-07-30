@@ -15,7 +15,7 @@ type mockCache struct {
 	store map[string][]byte
 }
 
-func (m *mockCache) Set(key, value []byte) ([]byte, error) {
+func (m *mockCache) Set(key, value []byte, ttlSeconds uint32) ([]byte, error) {
 	m.store[string(key)] = append([]byte(nil), value...)
 	return value, nil
 }
@@ -33,7 +33,8 @@ func (m *mockCache) Delete(key []byte) error {
 	return nil
 }
 
-func (m *mockCache) Close() error { return nil }
+func (m *mockCache) DeleteExpired(limit int) error { return nil }
+func (m *mockCache) Close() error                  { return nil }
 
 type mockRouter struct {
 	cache *mockCache
@@ -176,9 +177,13 @@ type errorCache struct {
 	mockCache
 }
 
-func (e *errorCache) Set(key, value []byte) ([]byte, error) {
+func (e *errorCache) Set(key, value []byte, ttlSeconds uint32) ([]byte, error) {
 	return nil, errors.New("set error")
 }
+func (e *errorCache) Get(key []byte) ([]byte, error)        { return nil, errors.New("get error") }
+func (e *errorCache) Delete(key []byte) error               { return errors.New("delete error") }
+func (e *errorCache) DeleteExpired(limit int) error         { return nil }
+func (e *errorCache) Close() error                          { return nil }
 
 type errorRouter struct {
 	cache api.CacheService

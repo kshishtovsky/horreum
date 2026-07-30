@@ -200,6 +200,23 @@ func (e *Eviction) Delete(key []byte, h arena.Handle) {
 	}
 }
 
+// Remove removes the handle from whichever queue holds it without touching the ghost index.
+// Useful for background garbage collection of expired handles where the key is no longer available.
+// Holds e.mu.
+func (e *Eviction) Remove(h arena.Handle) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	if e.sq.Remove(h) {
+		e.mgr.ClearMetaBits(h, arena.QueueTagMask)
+		return
+	}
+	if e.mq.Remove(h) {
+		e.mgr.ClearMetaBits(h, arena.QueueTagMask)
+		return
+	}
+}
+
 // Stats returns (S size, M size, ghost live count).
 func (e *Eviction) Stats() (sSize, mSize, ghostLive uint64) {
 	live, _ := e.gh.Stats()

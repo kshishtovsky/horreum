@@ -36,9 +36,10 @@ type Transport interface {
 // and writes.  The transport is single-threaded per shard, so the
 // implementation does not need to provide its own synchronisation.
 type CacheService interface {
-	Set(key, value []byte) ([]byte, error)
+	Set(key, value []byte, ttlSeconds uint32) ([]byte, error)
 	Get(key []byte) ([]byte, error)
 	Delete(key []byte) error
+	DeleteExpired(limit int) error
 	Close() error
 }
 

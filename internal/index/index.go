@@ -48,8 +48,10 @@ func (h *HashIndex) Put(key []byte, hd arena.Handle, expiresAt uint32) bool {
 	for {
 		if h.keys[idx] == nil {
 			// Empty slot — insert.
+			kCopy := make([]byte, len(key))
+			copy(kCopy, key)
 			h.buckets[idx] = Entry{Hash: hash, KeyLen: uint16(len(key)), Handle: hd, ExpiresAt: expiresAt}
-			h.keys[idx] = key
+			h.keys[idx] = kCopy
 			h.count++
 			return false
 		}

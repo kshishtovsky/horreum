@@ -652,7 +652,9 @@ func (s *shardIndex) put(key []byte, h arena.Handle, expiresAt uint32) (arena.Ha
 	i := hashKey(key) & s.mask
 	for {
 		if s.keys[i] == nil {
-			s.keys[i] = key
+			kCopy := make([]byte, len(key))
+			copy(kCopy, key)
+			s.keys[i] = kCopy
 			s.handles[i] = h
 			s.expiresAt[i] = expiresAt
 			s.count++

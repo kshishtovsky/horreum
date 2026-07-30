@@ -280,19 +280,27 @@ func main() {
 		t.Fatalf("build helper: %v\n%s", err, out)
 	}
 
-	// Run helper, then kill it after a short delay.
+	// Run helper, then kill it after a short delay once READY.
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, helperBin, dir, fmt.Sprint(numObjects), fmt.Sprint(payloadSize))
-	cmd.Stdout = os.Stdout
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		t.Fatalf("stdout pipe: %v", err)
+	}
 	cmd.Stderr = os.Stderr
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("start helper: %v", err)
 	}
 
-	// Wait a few ms, then SIGKILL.  The helper writes one object
-	// per ms-ish; we want to interrupt somewhere in the middle.
-	time.Sleep(5 * time.Millisecond)
+	// Wait until helper has initialized and written the superblock ("READY\n").
+	buf := make([]byte, 6)
+	if _, err := io.ReadFull(stdout, buf); err != nil {
+		t.Fatalf("read ready: %v", err)
+	}
+
+	// Wait a few ms mid-flight, then SIGKILL.
+	time.Sleep(20 * time.Millisecond)
 	if err := cmd.Process.Kill(); err != nil {
 		t.Fatalf("kill helper: %v", err)
 	}

@@ -27,6 +27,8 @@ func main() {
 		fmt.Fprintln(os.Stderr, "open:", err)
 		os.Exit(2)
 	}
+	fmt.Println("READY")
+	os.Stdout.Sync()
 	payload := make([]byte, payloadSize)
 	for i := 0; i < payloadSize; i++ {
 		payload[i] = byte(i)

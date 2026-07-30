@@ -38,6 +38,8 @@ type noopRecorder struct{}
 func (noopRecorder) ObserveSet(string, time.Duration) {}
 func (noopRecorder) ObserveGet(string, time.Duration) {}
 func (noopRecorder) ObserveDel(string, time.Duration) {}
+func (noopRecorder) ObserveCAS(string, time.Duration) {}
+func (noopRecorder) ObserveIncr(string, time.Duration) {}
 
 // Transport is the TCP-specific transport.
 type Transport struct {
@@ -302,6 +304,59 @@ func handleFrame(router api.ShardRouter, fr *proto.Frame, writeBuf *[]byte, rec 
 		*writeBuf = proto.EncodeResponse(*writeBuf, proto.OpDel, 0, fr.Key, nil)
 		rec.ObserveDel(status, time.Since(t0))
 		return true
+	case proto.OpCAS:
+		if len(fr.Value) < 4 {
+			status = "err"
+			*writeBuf = proto.EncodeResponse(*writeBuf, proto.OpCAS, 1, fr.Key, nil)
+			rec.ObserveCAS(status, time.Since(t0))
+			return true
+		}
+		expLen := int(binary.LittleEndian.Uint32(fr.Value[:4]))
+		if 4+expLen > len(fr.Value) {
+			status = "err"
+			*writeBuf = proto.EncodeResponse(*writeBuf, proto.OpCAS, 1, fr.Key, nil)
+			rec.ObserveCAS(status, time.Since(t0))
+			return true
+		}
+		expectedValue := fr.Value[4 : 4+expLen]
+		newValue := fr.Value[4+expLen:]
+		current, swapped, err := cache.CAS(fr.Key, expectedValue, newValue)
+		if err != nil {
+			status = "err"
+			*writeBuf = proto.EncodeResponse(*writeBuf, proto.OpCAS, 1, fr.Key, nil)
+			rec.ObserveCAS(status, time.Since(t0))
+			return true
+		}
+		if !swapped {
+			status = "err" // Mismatch or not found
+			*writeBuf = proto.EncodeResponse(*writeBuf, proto.OpCAS, 1, fr.Key, current)
+			rec.ObserveCAS(status, time.Since(t0))
+			return true
+		}
+		*writeBuf = proto.EncodeResponse(*writeBuf, proto.OpCAS, 0, fr.Key, nil)
+		rec.ObserveCAS(status, time.Since(t0))
+		return true
+	case proto.OpIncr:
+		if len(fr.Value) != 8 {
+			status = "err"
+			*writeBuf = proto.EncodeResponse(*writeBuf, proto.OpIncr, 1, fr.Key, nil)
+			rec.ObserveIncr(status, time.Since(t0))
+			return true
+		}
+		delta := int64(binary.LittleEndian.Uint64(fr.Value))
+		newVal, err := cache.Incr(fr.Key, delta)
+		if err != nil {
+			status = "err"
+			*writeBuf = proto.EncodeResponse(*writeBuf, proto.OpIncr, 1, fr.Key, nil)
+			rec.ObserveIncr(status, time.Since(t0))
+			return true
+		}
+		var respBuf [8]byte
+		binary.LittleEndian.PutUint64(respBuf[:], uint64(newVal))
+		*writeBuf = proto.EncodeResponse(*writeBuf, proto.OpIncr, 0, fr.Key, respBuf[:])
+		rec.ObserveIncr(status, time.Since(t0))
+		return true
+	default:
+		return false
 	}
-	return false
 }

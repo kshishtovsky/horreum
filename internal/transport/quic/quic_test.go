@@ -17,6 +17,8 @@ func (m *mockCache) Set(k, v []byte, ttlSeconds uint32) ([]byte, error) { return
 func (m *mockCache) Get(k []byte) ([]byte, error)       { return nil, api.ErrNotFound }
 func (m *mockCache) Delete(k []byte) error              { return nil }
 func (m *mockCache) DeleteExpired(limit int) error      { return nil }
+func (m *mockCache) CAS(k, ev, nv []byte) ([]byte, bool, error) { return nil, true, nil }
+func (m *mockCache) Incr(k []byte, d int64) (int64, error) { return d, nil }
 func (m *mockCache) Close() error                       { return nil }
 
 type mockRouter struct{}
@@ -162,4 +164,6 @@ func (m *hitCache) Set(k, v []byte, ttlSeconds uint32) ([]byte, error) { return 
 func (m *hitCache) Get(k []byte) ([]byte, error)       { return []byte("hit"), nil }
 func (m *hitCache) Delete(k []byte) error              { return nil }
 func (m *hitCache) DeleteExpired(limit int) error      { return nil }
+func (m *hitCache) CAS(k, ev, nv []byte) ([]byte, bool, error) { return nil, true, nil }
+func (m *hitCache) Incr(k []byte, d int64) (int64, error) { return d, nil }
 func (m *hitCache) Close() error                       { return nil }

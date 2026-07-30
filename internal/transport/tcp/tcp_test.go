@@ -33,8 +33,10 @@ func (m *mockCache) Delete(key []byte) error {
 	return nil
 }
 
-func (m *mockCache) DeleteExpired(limit int) error { return nil }
-func (m *mockCache) Close() error                  { return nil }
+func (m *mockCache) DeleteExpired(limit int) error         { return nil }
+func (m *mockCache) CAS(k, ev, nv []byte) ([]byte, bool, error) { return nil, true, nil }
+func (m *mockCache) Incr(k []byte, d int64) (int64, error) { return d, nil }
+func (m *mockCache) Close() error                          { return nil }
 
 type mockRouter struct {
 	cache *mockCache
@@ -183,6 +185,8 @@ func (e *errorCache) Set(key, value []byte, ttlSeconds uint32) ([]byte, error) {
 func (e *errorCache) Get(key []byte) ([]byte, error)        { return nil, errors.New("get error") }
 func (e *errorCache) Delete(key []byte) error               { return errors.New("delete error") }
 func (e *errorCache) DeleteExpired(limit int) error         { return nil }
+func (e *errorCache) CAS(k, ev, nv []byte) ([]byte, bool, error) { return nil, false, errors.New("cas error") }
+func (e *errorCache) Incr(k []byte, d int64) (int64, error) { return 0, errors.New("incr error") }
 func (e *errorCache) Close() error                          { return nil }
 
 type errorRouter struct {

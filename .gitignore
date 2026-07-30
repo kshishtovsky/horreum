@@ -7,3 +7,4 @@ aqueduct-bench
 *.key
 .hive/
 test_db/
+coverage

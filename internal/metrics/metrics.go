@@ -328,6 +328,8 @@ type Recorder interface {
 	ObserveSet(status string, dur time.Duration)
 	ObserveGet(status string, dur time.Duration)
 	ObserveDel(status string, dur time.Duration)
+	ObserveCAS(status string, dur time.Duration)
+	ObserveIncr(status string, dur time.Duration)
 }
 
 // NoopRecorder is a Recorder that drops all observations.  Useful as
@@ -337,13 +339,15 @@ type NoopRecorder struct{}
 func (NoopRecorder) ObserveSet(string, time.Duration) {}
 func (NoopRecorder) ObserveGet(string, time.Duration) {}
 func (NoopRecorder) ObserveDel(string, time.Duration) {}
+func (NoopRecorder) ObserveCAS(string, time.Duration) {}
+func (NoopRecorder) ObserveIncr(string, time.Duration) {}
 
 // DefaultRecorder is a Recorder that increments pre-registered
 // metrics.  Construct it via NewRecorder(); passing it by value is
 // safe because all fields are immutable after construction.
 type DefaultRecorder struct {
-	setTotal, getTotal, delTotal map[string]Hash
-	setLat, getLat, delLat       Hash
+	setTotal, getTotal, delTotal, casTotal, incrTotal map[string]Hash
+	setLat, getLat, delLat, casLat, incrLat       Hash
 }
 
 // NewRecorder creates the default Recorder.  It pre-registers
@@ -356,6 +360,8 @@ func NewRecorder() *DefaultRecorder {
 		setTotal: make(map[string]Hash, 2),
 		getTotal: make(map[string]Hash, 2),
 		delTotal: make(map[string]Hash, 2),
+		casTotal: make(map[string]Hash, 2),
+		incrTotal: make(map[string]Hash, 2),
 	}
 	r.setTotal["ok"] = RegisterCounter("horreum_ops_total",
 		"Total number of operations by command and status.",
@@ -375,6 +381,18 @@ func NewRecorder() *DefaultRecorder {
 	r.delTotal["err"] = RegisterCounter("horreum_ops_total",
 		"Total number of operations by command and status.",
 		[]Label{{Name: "cmd", Value: "del"}, {Name: "status", Value: "err"}})
+	r.casTotal["ok"] = RegisterCounter("horreum_ops_total",
+		"Total number of operations by command and status.",
+		[]Label{{Name: "cmd", Value: "cas"}, {Name: "status", Value: "ok"}})
+	r.casTotal["err"] = RegisterCounter("horreum_ops_total",
+		"Total number of operations by command and status.",
+		[]Label{{Name: "cmd", Value: "cas"}, {Name: "status", Value: "err"}})
+	r.incrTotal["ok"] = RegisterCounter("horreum_ops_total",
+		"Total number of operations by command and status.",
+		[]Label{{Name: "cmd", Value: "incr"}, {Name: "status", Value: "ok"}})
+	r.incrTotal["err"] = RegisterCounter("horreum_ops_total",
+		"Total number of operations by command and status.",
+		[]Label{{Name: "cmd", Value: "incr"}, {Name: "status", Value: "err"}})
 
 	buckets := []float64{
 		0.0001, 0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1, 5,
@@ -388,6 +406,12 @@ func NewRecorder() *DefaultRecorder {
 	r.delLat = RegisterHistogram("horreum_latency_seconds",
 		"Op latency in seconds, by command.",
 		[]Label{{Name: "cmd", Value: "del"}}, buckets)
+	r.casLat = RegisterHistogram("horreum_latency_seconds",
+		"Op latency in seconds, by command.",
+		[]Label{{Name: "cmd", Value: "cas"}}, buckets)
+	r.incrLat = RegisterHistogram("horreum_latency_seconds",
+		"Op latency in seconds, by command.",
+		[]Label{{Name: "cmd", Value: "incr"}}, buckets)
 	return r
 }
 
@@ -413,6 +437,22 @@ func (r *DefaultRecorder) ObserveDel(status string, dur time.Duration) {
 		IncCounter(h)
 	}
 	Observe(r.delLat, dur.Seconds())
+}
+
+// ObserveCAS records a CAS op.
+func (r *DefaultRecorder) ObserveCAS(status string, dur time.Duration) {
+	if h, ok := r.casTotal[status]; ok {
+		IncCounter(h)
+	}
+	Observe(r.casLat, dur.Seconds())
+}
+
+// ObserveIncr records a INCR op.
+func (r *DefaultRecorder) ObserveIncr(status string, dur time.Duration) {
+	if h, ok := r.incrTotal[status]; ok {
+		IncCounter(h)
+	}
+	Observe(r.incrLat, dur.Seconds())
 }
 
 // Compile-time interface check.

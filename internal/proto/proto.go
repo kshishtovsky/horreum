@@ -31,17 +31,19 @@ const (
 
 	maxFrameSize = 64 << 20 // 64 MiB — matches arena.MaxObjectSize
 
-	opCodeGet uint8 = 1
+	opCodeGet   uint8 = 1
 	opCodeSet   uint8 = 2
 	opCodeDel   uint8 = 3
 	opCodeSetEx uint8 = 4
+	opCodeCAS   uint8 = 5
+	opCodeIncr  uint8 = 6
 
 	// Response status codes (encoded in flags on responses).
 	statusOK  uint8 = 0
 	statusErr uint8 = 1
 )
 
-var opName = [5]string{"", "GET", "SET", "DEL", "SETEX"}
+var opName = [7]string{"", "GET", "SET", "DEL", "SETEX", "CAS", "INCR"}
 
 // OpCode is the parsed operation kind.
 type OpCode uint8
@@ -59,6 +61,8 @@ const (
 	OpSet   OpCode = OpCode(opCodeSet)
 	OpDel   OpCode = OpCode(opCodeDel)
 	OpSetEx OpCode = OpCode(opCodeSetEx)
+	OpCAS   OpCode = OpCode(opCodeCAS)
+	OpIncr  OpCode = OpCode(opCodeIncr)
 )
 
 // Errors returned by the parser.
@@ -136,6 +140,58 @@ func EncodeSetEx(dst []byte, key, value []byte, ttlSeconds uint32) []byte {
 	return dst
 }
 
+// EncodeCAS appends an OpCAS + key + [expLen(4 bytes) + expectedValue + newValue] to dst.
+func EncodeCAS(dst []byte, key, expectedValue, newValue []byte) []byte {
+	const hdrLen = headerSize
+	valLen := 4 + len(expectedValue) + len(newValue)
+	need := hdrLen + len(key) + valLen
+	if cap(dst)-len(dst) < need {
+		newBuf := make([]byte, len(dst)+need, 2*(len(dst)+need))
+		copy(newBuf, dst)
+		dst = newBuf[:len(dst)]
+	}
+	off := len(dst)
+	dst = dst[:off+need]
+	binary.LittleEndian.PutUint16(dst[off:off+2], magic)
+	dst[off+2] = opCodeCAS
+	dst[off+3] = 0
+	binary.LittleEndian.PutUint16(dst[off+4:off+6], uint16(len(key)))
+	binary.LittleEndian.PutUint32(dst[off+6:off+10], uint32(valLen))
+	copy(dst[off+hdrLen:off+hdrLen+len(key)], key)
+	// Write Expected Length
+	valOff := off + hdrLen + len(key)
+	binary.LittleEndian.PutUint32(dst[valOff:valOff+4], uint32(len(expectedValue)))
+	// Write Expected Value
+	copy(dst[valOff+4:valOff+4+len(expectedValue)], expectedValue)
+	// Write New Value
+	copy(dst[valOff+4+len(expectedValue):], newValue)
+	return dst
+}
+
+// EncodeIncr appends an OpIncr + key + [delta(8 bytes)] to dst.
+func EncodeIncr(dst []byte, key []byte, delta int64) []byte {
+	const hdrLen = headerSize
+	valLen := 8
+	need := hdrLen + len(key) + valLen
+	if cap(dst)-len(dst) < need {
+		newBuf := make([]byte, len(dst)+need, 2*(len(dst)+need))
+		copy(newBuf, dst)
+		dst = newBuf[:len(dst)]
+	}
+	off := len(dst)
+	dst = dst[:off+need]
+	binary.LittleEndian.PutUint16(dst[off:off+2], magic)
+	dst[off+2] = opCodeIncr
+	dst[off+3] = 0
+	binary.LittleEndian.PutUint16(dst[off+4:off+6], uint16(len(key)))
+	binary.LittleEndian.PutUint32(dst[off+6:off+10], uint32(valLen))
+	copy(dst[off+hdrLen:off+hdrLen+len(key)], key)
+	// Write Delta
+	valOff := off + hdrLen + len(key)
+	binary.LittleEndian.PutUint64(dst[valOff:valOff+8], uint64(delta))
+	return dst
+}
+
 // EncodeResponse appends a response frame to dst.
 func EncodeResponse(dst []byte, op OpCode, status uint8, key, value []byte) []byte {
 	const hdrLen = headerSize
@@ -204,7 +260,7 @@ func (p *Parser) Parse() (Frame, error) {
 	}
 	var opc OpCode
 	switch op {
-	case opCodeGet, opCodeSet, opCodeDel, opCodeSetEx:
+	case opCodeGet, opCodeSet, opCodeDel, opCodeSetEx, opCodeCAS, opCodeIncr:
 		opc = OpCode(op)
 	default:
 		return Frame{}, ErrUnknownOp
@@ -297,7 +353,7 @@ func (p *Parser) parseIn(work []byte) (Frame, error) {
 	}
 	var opc OpCode
 	switch op {
-	case opCodeGet, opCodeSet, opCodeDel, opCodeSetEx:
+	case opCodeGet, opCodeSet, opCodeDel, opCodeSetEx, opCodeCAS, opCodeIncr:
 		opc = OpCode(op)
 	default:
 		return Frame{}, ErrUnknownOp

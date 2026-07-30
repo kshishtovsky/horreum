@@ -6,6 +6,7 @@
 package transport
 
 import (
+	"encoding/binary"
 	"errors"
 	"hash/fnv"
 	"net"
@@ -173,7 +174,7 @@ func (s *shardCache) Get(key []byte) ([]byte, error) {
 		return nil, errBackendNil
 	}
 	now := uint32(time.Now().Unix())
-	h, ok := s.idx.get(key, now)
+	h, ok, _ := s.idx.get(key, now)
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -204,6 +205,171 @@ func (s *shardCache) Get(key []byte) ([]byte, error) {
 		return dec, nil
 	}
 	return raw, nil
+}
+
+// CAS implements CacheService.
+func (s *shardCache) CAS(key, expectedValue, newValue []byte) ([]byte, bool, error) {
+	if s == nil {
+		return nil, false, errBackendNil
+	}
+	now := uint32(time.Now().Unix())
+	h, ok, expiresAt := s.idx.get(key, now)
+	if !ok {
+		return nil, false, nil
+	}
+	s.ev.Touch(h)
+	raw, err := s.mgr.View(h)
+	if err != nil {
+		return nil, false, err
+	}
+	// For simplicity, we compare raw byte values directly. If they were compressed or encrypted,
+	// we compare the uncompressed/unencrypted expectedValue against the decrypted/decompressed raw.
+	currentValue := raw
+	isEncrypted := s.mgr.GetMeta(h)&arena.EncryptedFlag != 0
+	isCompressed := s.mgr.GetMeta(h)&arena.CompressedFlag != 0
+	if isEncrypted {
+		if s.cipher == nil || s.cipher.Name() == "none" {
+			return nil, false, errors.New("transport: data is encrypted but no cipher key is configured")
+		}
+		dec, err := s.cipher.Decrypt(nil, currentValue)
+		if err != nil {
+			return nil, false, err
+		}
+		currentValue = dec
+	}
+	if isCompressed {
+		dec, err := s.comp.Decompress(currentValue)
+		if err != nil {
+			return nil, false, err
+		}
+		currentValue = dec
+	}
+
+	if !bytesEq(currentValue, expectedValue) {
+		// Mismatch, return current value
+		out := make([]byte, len(currentValue))
+		copy(out, currentValue)
+		return out, false, nil
+	}
+
+	// Prepare new value
+	if uint64(len(newValue)) > arena.MaxObjectSize {
+		return nil, false, ErrTooLarge
+	}
+	valToWrite := newValue
+	compressed := false
+	if s.comp != nil && s.comp.Name() != "none" {
+		if cBuf, ok := s.comp.Compress(valToWrite); ok {
+			valToWrite = cBuf
+			compressed = true
+			defer s.comp.PutBuf(cBuf)
+		}
+	}
+	encrypted := false
+	if s.cipher != nil && s.cipher.Name() != "none" {
+		encBuf, err := s.cipher.Encrypt(nil, valToWrite)
+		if err != nil {
+			return nil, false, err
+		}
+		valToWrite = encBuf
+		encrypted = true
+	}
+	if uint64(len(valToWrite)) > arena.MaxObjectSize {
+		return nil, false, ErrTooLarge
+	}
+	newH, err := s.mgr.Put(valToWrite)
+	if err != nil {
+		return nil, false, err
+	}
+	if compressed {
+		s.mgr.OrMetaBits(newH, arena.CompressedFlag)
+	}
+	if encrypted {
+		s.mgr.OrMetaBits(newH, arena.EncryptedFlag)
+	}
+	
+	for _, e := range s.ev.Add(key, newH) {
+		_ = s.mgr.Free(e)
+	}
+	old, replaced := s.idx.put(key, newH, expiresAt)
+	if replaced {
+		_ = s.mgr.Free(old)
+	}
+	return nil, true, nil
+}
+
+// Incr implements CacheService.
+func (s *shardCache) Incr(key []byte, delta int64) (int64, error) {
+	if s == nil {
+		return 0, errBackendNil
+	}
+	now := uint32(time.Now().Unix())
+	h, ok, expiresAt := s.idx.get(key, now)
+	var current int64 = 0
+	if ok {
+		s.ev.Touch(h)
+		raw, err := s.mgr.View(h)
+		if err == nil {
+			if s.mgr.GetMeta(h)&arena.EncryptedFlag != 0 && s.cipher != nil && s.cipher.Name() != "none" {
+				if dec, err := s.cipher.Decrypt(nil, raw); err == nil {
+					raw = dec
+				}
+			}
+			if s.mgr.GetMeta(h)&arena.CompressedFlag != 0 {
+				if dec, err := s.comp.Decompress(raw); err == nil {
+					raw = dec
+				}
+			}
+			if len(raw) == 8 {
+				current = int64(binary.LittleEndian.Uint64(raw))
+			}
+		}
+	}
+
+	current += delta
+	var newValue [8]byte
+	binary.LittleEndian.PutUint64(newValue[:], uint64(current))
+
+	valToWrite := newValue[:]
+	compressed := false
+	if s.comp != nil && s.comp.Name() != "none" {
+		if cBuf, ok := s.comp.Compress(valToWrite); ok {
+			valToWrite = cBuf
+			compressed = true
+			defer s.comp.PutBuf(cBuf)
+		}
+	}
+	encrypted := false
+	if s.cipher != nil && s.cipher.Name() != "none" {
+		encBuf, err := s.cipher.Encrypt(nil, valToWrite)
+		if err != nil {
+			return 0, err
+		}
+		valToWrite = encBuf
+		encrypted = true
+	}
+	if uint64(len(valToWrite)) > arena.MaxObjectSize {
+		return 0, ErrTooLarge
+	}
+	newH, err := s.mgr.Put(valToWrite)
+	if err != nil {
+		return 0, err
+	}
+	if compressed {
+		s.mgr.OrMetaBits(newH, arena.CompressedFlag)
+	}
+	if encrypted {
+		s.mgr.OrMetaBits(newH, arena.EncryptedFlag)
+	}
+	
+	for _, e := range s.ev.Add(key, newH) {
+		_ = s.mgr.Free(e)
+	}
+	old, replaced := s.idx.put(key, newH, expiresAt)
+	if replaced {
+		_ = s.mgr.Free(old)
+	}
+	return current, nil
 }
 
 // Delete implements CacheService.
@@ -284,20 +450,20 @@ func (s *shardIndex) put(key []byte, h arena.Handle, expiresAt uint32) (arena.Ha
 	}
 }
 
-func (s *shardIndex) get(key []byte, now uint32) (arena.Handle, bool) {
+func (s *shardIndex) get(key []byte, now uint32) (arena.Handle, bool, uint32) {
 	if s.count == 0 {
-		return arena.Handle{}, false
+		return arena.Handle{}, false, 0
 	}
 	i := hashKey(key) & s.mask
 	for {
 		if s.keys[i] == nil {
-			return arena.Handle{}, false
+			return arena.Handle{}, false, 0
 		}
 		if bytesEq(s.keys[i], key) {
 			if s.expiresAt[i] != 0 && now >= s.expiresAt[i] {
-				return arena.Handle{}, false
+				return arena.Handle{}, false, 0
 			}
-			return s.handles[i], true
+			return s.handles[i], true, s.expiresAt[i]
 		}
 		i = (i + 1) & s.mask
 	}

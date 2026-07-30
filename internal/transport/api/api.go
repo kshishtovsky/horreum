@@ -22,6 +22,8 @@ type Recorder interface {
 	ObserveSet(status string, dur time.Duration)
 	ObserveGet(status string, dur time.Duration)
 	ObserveDel(status string, dur time.Duration)
+	ObserveCAS(status string, dur time.Duration)
+	ObserveIncr(status string, dur time.Duration)
 }
 
 // Transport is the abstract listener / connection-servicer used by
@@ -40,6 +42,8 @@ type CacheService interface {
 	Get(key []byte) ([]byte, error)
 	Delete(key []byte) error
 	DeleteExpired(limit int) error
+	CAS(key, expectedValue, newValue []byte) (currentValue []byte, swapped bool, err error)
+	Incr(key []byte, delta int64) (int64, error)
 	Close() error
 }
 

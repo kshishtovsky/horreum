@@ -32,15 +32,16 @@ const (
 	maxFrameSize = 64 << 20 // 64 MiB — matches arena.MaxObjectSize
 
 	opCodeGet uint8 = 1
-	opCodeSet uint8 = 2
-	opCodeDel uint8 = 3
+	opCodeSet   uint8 = 2
+	opCodeDel   uint8 = 3
+	opCodeSetEx uint8 = 4
 
 	// Response status codes (encoded in flags on responses).
 	statusOK  uint8 = 0
 	statusErr uint8 = 1
 )
 
-var opName = [4]string{"", "GET", "SET", "DEL"}
+var opName = [5]string{"", "GET", "SET", "DEL", "SETEX"}
 
 // OpCode is the parsed operation kind.
 type OpCode uint8
@@ -54,9 +55,10 @@ func (o OpCode) String() string {
 }
 
 const (
-	OpGet OpCode = OpCode(opCodeGet)
-	OpSet OpCode = OpCode(opCodeSet)
-	OpDel OpCode = OpCode(opCodeDel)
+	OpGet   OpCode = OpCode(opCodeGet)
+	OpSet   OpCode = OpCode(opCodeSet)
+	OpDel   OpCode = OpCode(opCodeDel)
+	OpSetEx OpCode = OpCode(opCodeSetEx)
 )
 
 // Errors returned by the parser.
@@ -105,6 +107,32 @@ func EncodeRequest(dst []byte, op OpCode, key, value []byte) []byte {
 	binary.LittleEndian.PutUint32(dst[off+6:off+10], uint32(len(value)))
 	copy(dst[off+hdrLen:off+hdrLen+len(key)], key)
 	copy(dst[off+hdrLen+len(key):], value)
+	return dst
+}
+
+// EncodeSetEx appends an OpSetEx + key + [ttlSeconds(4 bytes) + value] to dst.
+func EncodeSetEx(dst []byte, key, value []byte, ttlSeconds uint32) []byte {
+	const hdrLen = headerSize
+	valLen := 4 + len(value)
+	need := hdrLen + len(key) + valLen
+	if cap(dst)-len(dst) < need {
+		newBuf := make([]byte, len(dst)+need, 2*(len(dst)+need))
+		copy(newBuf, dst)
+		dst = newBuf[:len(dst)]
+	}
+	off := len(dst)
+	dst = dst[:off+need]
+	binary.LittleEndian.PutUint16(dst[off:off+2], magic)
+	dst[off+2] = opCodeSetEx
+	dst[off+3] = 0
+	binary.LittleEndian.PutUint16(dst[off+4:off+6], uint16(len(key)))
+	binary.LittleEndian.PutUint32(dst[off+6:off+10], uint32(valLen))
+	copy(dst[off+hdrLen:off+hdrLen+len(key)], key)
+	// Write TTL
+	valOff := off + hdrLen + len(key)
+	binary.LittleEndian.PutUint32(dst[valOff:valOff+4], ttlSeconds)
+	// Write Value
+	copy(dst[valOff+4:], value)
 	return dst
 }
 
@@ -176,7 +204,7 @@ func (p *Parser) Parse() (Frame, error) {
 	}
 	var opc OpCode
 	switch op {
-	case opCodeGet, opCodeSet, opCodeDel:
+	case opCodeGet, opCodeSet, opCodeDel, opCodeSetEx:
 		opc = OpCode(op)
 	default:
 		return Frame{}, ErrUnknownOp
@@ -269,7 +297,7 @@ func (p *Parser) parseIn(work []byte) (Frame, error) {
 	}
 	var opc OpCode
 	switch op {
-	case opCodeGet, opCodeSet, opCodeDel:
+	case opCodeGet, opCodeSet, opCodeDel, opCodeSetEx:
 		opc = OpCode(op)
 	default:
 		return Frame{}, ErrUnknownOp

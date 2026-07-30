@@ -137,7 +137,7 @@ func (pm *PersistentManager) LoadIndex(idx *index.HashIndex) error {
 		return err
 	}
 	for _, se := range entries {
-		idx.Add(se.Key, se.Handle)
+		idx.Add(se.Key, se.Handle, se.ExpiresAt)
 	}
 	// Replay WAL on top of checkpoint.
 	if err := ReplayTo(pm.mgr, pm.wal, idx); err != nil {
@@ -193,6 +193,34 @@ func (pm *PersistentManager) Put(key, value []byte) (arena.Handle, []byte, error
 		return arena.Handle{}, nil, err
 	}
 	if _, err := pm.wal.AppendSet(key, value, arenaHandleLike{Offset: h.Offset, Size: h.Size, Region: h.Region}); err != nil {
+		_ = pm.mgr.Free(h)
+		return arena.Handle{}, nil, err
+	}
+	if pm.durable {
+		if err := pm.wal.Sync(); err != nil {
+			_ = pm.mgr.Free(h)
+			return arena.Handle{}, nil, fmt.Errorf("persist: wal sync: %w", err)
+		}
+	}
+	view, err := pm.mgr.View(h)
+	if err != nil {
+		return arena.Handle{}, nil, err
+	}
+	return h, view, nil
+}
+
+// PutEx stores value under key with an expiration time, appending a WAL record.
+func (pm *PersistentManager) PutEx(key, value []byte, expiresAt uint32) (arena.Handle, []byte, error) {
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+	if pm.closed.Load() {
+		return arena.Handle{}, nil, errors.New("persist: manager closed")
+	}
+	h, err := pm.mgr.Put(value)
+	if err != nil {
+		return arena.Handle{}, nil, err
+	}
+	if _, err := pm.wal.AppendSetEx(key, value, arenaHandleLike{Offset: h.Offset, Size: h.Size, Region: h.Region}, expiresAt); err != nil {
 		_ = pm.mgr.Free(h)
 		return arena.Handle{}, nil, err
 	}

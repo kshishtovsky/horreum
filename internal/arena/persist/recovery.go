@@ -29,7 +29,7 @@ import (
 // IndexWriter is the subset of HashIndex that ReplayTo needs.
 // Defined here to avoid an import cycle with internal/index.
 type IndexWriter interface {
-	Put(key []byte, h arena.Handle) bool
+	Put(key []byte, h arena.Handle, expiresAt uint32) bool
 	Delete(key []byte) (arena.Handle, bool)
 }
 
@@ -180,7 +180,14 @@ func ReplayTo(m *arena.Manager, wal *WAL, idx IndexWriter) error {
 				Size:   rec.Size,
 				Region: rec.Region,
 			}
-			idx.Put(rec.Key, h)
+			idx.Put(rec.Key, h, 0)
+		case walOpSetEx:
+			h := arena.Handle{
+				Offset: rec.Offset,
+				Size:   rec.Size,
+				Region: rec.Region,
+			}
+			idx.Put(rec.Key, h, rec.ExpiresAt)
 		case walOpDel:
 			idx.Delete(rec.Key)
 		}

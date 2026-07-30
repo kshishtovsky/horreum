@@ -483,7 +483,7 @@ func TestCheckpointRoundTrip(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Put: %v", err)
 		}
-		if !src.Add(key, h) {
+		if !src.Add(key, h, 0) {
 			t.Fatalf("Add returned false for key %q", key)
 		}
 		want[string(key)] = h
@@ -502,7 +502,7 @@ func TestCheckpointRoundTrip(t *testing.T) {
 		t.Errorf("dst.Count = %d, want %d", dst.Count(), n)
 	}
 	for k, hd := range want {
-		got, ok := dst.Get([]byte(k))
+		got, ok := dst.Get([]byte(k), 0)
 		if !ok {
 			t.Errorf("dst.Get(%q) = false", k)
 			continue
@@ -541,7 +541,7 @@ func TestColdStartLoadsCheckpoint(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Put: %v", err)
 		}
-		if !idx.Add(key, h) {
+		if !idx.Add(key, h, 0) {
 			t.Fatalf("Add returned false for %q", key)
 		}
 	}
@@ -574,7 +574,7 @@ func TestColdStartLoadsCheckpoint(t *testing.T) {
 	// Verify every key resolves and returns the correct value.
 	for i := 0; i < n; i++ {
 		key := []byte(fmt.Sprintf("k%05d", i))
-		h, ok := idx2.Get(key)
+		h, ok := idx2.Get(key, 0)
 		if !ok {
 			t.Errorf("key %q missing after restart", key)
 			continue
@@ -621,7 +621,7 @@ func TestCheckpointWALTruncate(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Put: %v", err)
 		}
-		idx.Put(key, h)
+		idx.Put(key, h, 0)
 	}
 	if pm.WAL().Offset() == 0 {
 		t.Fatal("WAL offset is 0 after writes; expected non-zero")
@@ -655,7 +655,7 @@ func TestColdStartLargeCheckpoint(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Put: %v", err)
 		}
-		if !idx.Add(key, h) {
+		if !idx.Add(key, h, 0) {
 			t.Fatalf("Add returned false for %q", key)
 		}
 	}
@@ -748,7 +748,7 @@ func TestReplayNoMgrPut(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Put: %v", err)
 		}
-		idx.Add(key, h)
+		idx.Add(key, h, 0)
 	}
 	statsBefore := pm.Manager().Stats()
 	// Replay into a fresh index — replay must NOT allocate in arena.

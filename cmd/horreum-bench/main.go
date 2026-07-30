@@ -16,7 +16,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/horreum/horreum/internal/arena"
+	"github.com/kshishtovsky/horreum/internal/arena"
 )
 
 func main() {

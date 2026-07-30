@@ -23,9 +23,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/horreum/horreum/internal/arena"
-	"github.com/horreum/horreum/internal/arena/persist"
-	"github.com/horreum/horreum/internal/index"
+	"github.com/kshishtovsky/horreum/internal/arena"
+	"github.com/kshishtovsky/horreum/internal/arena/persist"
+	"github.com/kshishtovsky/horreum/internal/index"
 )
 
 // moduleRoot returns the directory containing the project's go.mod,
@@ -220,7 +220,7 @@ import (
 		"strconv"
 		"time"
 
-		"github.com/horreum/horreum/internal/arena/persist"
+		"github.com/kshishtovsky/horreum/internal/arena/persist"
 )
 
 func main() {

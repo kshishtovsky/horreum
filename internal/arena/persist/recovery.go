@@ -23,7 +23,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/horreum/horreum/internal/arena"
+	"github.com/kshishtovsky/horreum/internal/arena"
 )
 
 // IndexWriter is the subset of HashIndex that ReplayTo needs.

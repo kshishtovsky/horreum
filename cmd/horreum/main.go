@@ -32,19 +32,19 @@ import (
 	"strings"
 	"time"
 
-	"github.com/horreum/horreum/internal/arena"
-	"github.com/horreum/horreum/internal/arena/persist"
-	"github.com/horreum/horreum/internal/compress"
-	"github.com/horreum/horreum/internal/config"
-	"github.com/horreum/horreum/internal/encrypt"
-	"github.com/horreum/horreum/internal/index"
-	"github.com/horreum/horreum/internal/logger"
-	"github.com/horreum/horreum/internal/metrics"
-	"github.com/horreum/horreum/internal/shutdown"
-	"github.com/horreum/horreum/internal/transport"
-	_ "github.com/horreum/horreum/internal/transport/quic" // register "quic" factory
-	tpquic "github.com/horreum/horreum/internal/transport/quic"
-	_ "github.com/horreum/horreum/internal/transport/tcp" // register "tcp" factory
+	"github.com/kshishtovsky/horreum/internal/arena"
+	"github.com/kshishtovsky/horreum/internal/arena/persist"
+	"github.com/kshishtovsky/horreum/internal/compress"
+	"github.com/kshishtovsky/horreum/internal/config"
+	"github.com/kshishtovsky/horreum/internal/encrypt"
+	"github.com/kshishtovsky/horreum/internal/index"
+	"github.com/kshishtovsky/horreum/internal/logger"
+	"github.com/kshishtovsky/horreum/internal/metrics"
+	"github.com/kshishtovsky/horreum/internal/shutdown"
+	"github.com/kshishtovsky/horreum/internal/transport"
+	_ "github.com/kshishtovsky/horreum/internal/transport/quic" // register "quic" factory
+	tpquic "github.com/kshishtovsky/horreum/internal/transport/quic"
+	_ "github.com/kshishtovsky/horreum/internal/transport/tcp" // register "tcp" factory
 )
 
 // Gauge handles registered at startup.

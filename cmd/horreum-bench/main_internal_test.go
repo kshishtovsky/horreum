@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/horreum/horreum/internal/arena"
+	"github.com/kshishtovsky/horreum/internal/arena"
 )
 
 // captureStdout redirects os.Stdout for the duration of fn and returns what

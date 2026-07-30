@@ -14,8 +14,8 @@ import (
 	"math/rand"
 	"testing"
 
-	"github.com/horreum/horreum/internal/arena"
-	"github.com/horreum/horreum/internal/eviction"
+	"github.com/kshishtovsky/horreum/internal/arena"
+	"github.com/kshishtovsky/horreum/internal/eviction"
 )
 
 // benchSetup prepares an arena + eviction pair for benchmarks.

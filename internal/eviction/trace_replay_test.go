@@ -12,8 +12,8 @@ import (
 	"math/rand"
 	"testing"
 
-	"github.com/horreum/horreum/internal/arena"
-	"github.com/horreum/horreum/internal/eviction"
+	"github.com/kshishtovsky/horreum/internal/arena"
+	"github.com/kshishtovsky/horreum/internal/eviction"
 )
 
 // opKind enumerates workload operations.

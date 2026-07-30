@@ -10,7 +10,7 @@ import (
 	"crypto/tls"
 	"sync"
 
-	"github.com/horreum/horreum/internal/transport/api"
+	"github.com/kshishtovsky/horreum/internal/transport/api"
 )
 
 var (

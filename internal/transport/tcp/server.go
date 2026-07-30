@@ -281,6 +281,35 @@ func handleFrame(router api.ShardRouter, fr *proto.Frame, writeBuf *[]byte, rec 
 		return handleScan(router, fr, writeBuf, rec, t0)
 	case proto.OpDelPrefix:
 		return handleDelPrefix(router, fr, writeBuf, rec, t0)
+
+	case proto.OpHSet:
+		return handleHSet(router, fr, writeBuf, rec, t0)
+	case proto.OpHGet:
+		return handleHGet(router, fr, writeBuf, rec, t0)
+	case proto.OpHDel:
+		return handleHDel(router, fr, writeBuf, rec, t0)
+	case proto.OpHGetAll:
+		return handleHGetAll(router, fr, writeBuf, rec, t0)
+
+	case proto.OpLPush:
+		return handleLPush(router, fr, writeBuf, rec, t0)
+	case proto.OpLPop:
+		return handleLPop(router, fr, writeBuf, rec, t0)
+	case proto.OpRPush:
+		return handleRPush(router, fr, writeBuf, rec, t0)
+	case proto.OpRPop:
+		return handleRPop(router, fr, writeBuf, rec, t0)
+	case proto.OpLLen:
+		return handleLLen(router, fr, writeBuf, rec, t0)
+
+	case proto.OpSAdd:
+		return handleSAdd(router, fr, writeBuf, rec, t0)
+	case proto.OpSRem:
+		return handleSRem(router, fr, writeBuf, rec, t0)
+	case proto.OpSIsMember:
+		return handleSIsMember(router, fr, writeBuf, rec, t0)
+	case proto.OpSMembers:
+		return handleSMembers(router, fr, writeBuf, rec, t0)
 	default:
 		return false
 	}
@@ -436,5 +465,198 @@ func handleDelPrefix(router api.ShardRouter, fr *proto.Frame, writeBuf *[]byte, 
 	binary.LittleEndian.PutUint64(respBuf[:], deleted)
 	*writeBuf = proto.EncodeResponse(*writeBuf, proto.OpDelPrefix, 0, fr.Key, respBuf[:])
 	rec.ObserveDelPrefix("ok", time.Since(t0))
+	return true
+}
+
+func handleHSet(router api.ShardRouter, fr *proto.Frame, writeBuf *[]byte, rec api.Recorder, t0 time.Time) bool {
+	if len(fr.Value) < 2 {
+		*writeBuf = proto.EncodeResponse(*writeBuf, proto.OpHSet, 1, fr.Key, nil)
+		return true
+	}
+	flen := int(binary.LittleEndian.Uint16(fr.Value[:2]))
+	if 2+flen > len(fr.Value) {
+		*writeBuf = proto.EncodeResponse(*writeBuf, proto.OpHSet, 1, fr.Key, nil)
+		return true
+	}
+	field := fr.Value[2 : 2+flen]
+	val := fr.Value[2+flen:]
+	cache := router.CacheFor(fr.Key)
+	_, err := cache.HSet(fr.Key, field, val)
+	if err != nil {
+		*writeBuf = proto.EncodeResponse(*writeBuf, proto.OpHSet, 1, fr.Key, nil)
+		return true
+	}
+	*writeBuf = proto.EncodeResponse(*writeBuf, proto.OpHSet, 0, fr.Key, nil)
+	return true
+}
+
+func handleHGet(router api.ShardRouter, fr *proto.Frame, writeBuf *[]byte, rec api.Recorder, t0 time.Time) bool {
+	field := fr.Value
+	cache := router.CacheFor(fr.Key)
+	val, err := cache.HGet(fr.Key, field)
+	if err != nil {
+		*writeBuf = proto.EncodeResponse(*writeBuf, proto.OpHGet, 1, fr.Key, nil)
+		return true
+	}
+	*writeBuf = proto.EncodeResponse(*writeBuf, proto.OpHGet, 0, fr.Key, val)
+	return true
+}
+
+func handleHDel(router api.ShardRouter, fr *proto.Frame, writeBuf *[]byte, rec api.Recorder, t0 time.Time) bool {
+	field := fr.Value
+	cache := router.CacheFor(fr.Key)
+	deleted, err := cache.HDel(fr.Key, field)
+	if err != nil || !deleted {
+		*writeBuf = proto.EncodeResponse(*writeBuf, proto.OpHDel, 1, fr.Key, nil)
+		return true
+	}
+	*writeBuf = proto.EncodeResponse(*writeBuf, proto.OpHDel, 0, fr.Key, nil)
+	return true
+}
+
+func handleHGetAll(router api.ShardRouter, fr *proto.Frame, writeBuf *[]byte, rec api.Recorder, t0 time.Time) bool {
+	cache := router.CacheFor(fr.Key)
+	fields, values, err := cache.HGetAll(fr.Key)
+	if err != nil {
+		*writeBuf = proto.EncodeResponse(*writeBuf, proto.OpHGetAll, 1, fr.Key, nil)
+		return true
+	}
+	payloadLen := 4
+	for i := range fields {
+		payloadLen += 2 + len(fields[i]) + 4 + len(values[i])
+	}
+	respPayload := make([]byte, payloadLen)
+	binary.LittleEndian.PutUint32(respPayload[:4], uint32(len(fields)))
+	off := 4
+	for i := range fields {
+		binary.LittleEndian.PutUint16(respPayload[off:off+2], uint16(len(fields[i])))
+		copy(respPayload[off+2:], fields[i])
+		off += 2 + len(fields[i])
+		binary.LittleEndian.PutUint32(respPayload[off:off+4], uint32(len(values[i])))
+		copy(respPayload[off+4:], values[i])
+		off += 4 + len(values[i])
+	}
+	*writeBuf = proto.EncodeResponse(*writeBuf, proto.OpHGetAll, 0, fr.Key, respPayload)
+	return true
+}
+
+func handleLPush(router api.ShardRouter, fr *proto.Frame, writeBuf *[]byte, rec api.Recorder, t0 time.Time) bool {
+	cache := router.CacheFor(fr.Key)
+	length, err := cache.LPush(fr.Key, fr.Value)
+	if err != nil {
+		*writeBuf = proto.EncodeResponse(*writeBuf, proto.OpLPush, 1, fr.Key, nil)
+		return true
+	}
+	var buf [4]byte
+	binary.LittleEndian.PutUint32(buf[:], length)
+	*writeBuf = proto.EncodeResponse(*writeBuf, proto.OpLPush, 0, fr.Key, buf[:])
+	return true
+}
+
+func handleRPush(router api.ShardRouter, fr *proto.Frame, writeBuf *[]byte, rec api.Recorder, t0 time.Time) bool {
+	cache := router.CacheFor(fr.Key)
+	length, err := cache.RPush(fr.Key, fr.Value)
+	if err != nil {
+		*writeBuf = proto.EncodeResponse(*writeBuf, proto.OpRPush, 1, fr.Key, nil)
+		return true
+	}
+	var buf [4]byte
+	binary.LittleEndian.PutUint32(buf[:], length)
+	*writeBuf = proto.EncodeResponse(*writeBuf, proto.OpRPush, 0, fr.Key, buf[:])
+	return true
+}
+
+func handleLPop(router api.ShardRouter, fr *proto.Frame, writeBuf *[]byte, rec api.Recorder, t0 time.Time) bool {
+	cache := router.CacheFor(fr.Key)
+	elem, err := cache.LPop(fr.Key)
+	if err != nil {
+		*writeBuf = proto.EncodeResponse(*writeBuf, proto.OpLPop, 1, fr.Key, nil)
+		return true
+	}
+	*writeBuf = proto.EncodeResponse(*writeBuf, proto.OpLPop, 0, fr.Key, elem)
+	return true
+}
+
+func handleRPop(router api.ShardRouter, fr *proto.Frame, writeBuf *[]byte, rec api.Recorder, t0 time.Time) bool {
+	cache := router.CacheFor(fr.Key)
+	elem, err := cache.RPop(fr.Key)
+	if err != nil {
+		*writeBuf = proto.EncodeResponse(*writeBuf, proto.OpRPop, 1, fr.Key, nil)
+		return true
+	}
+	*writeBuf = proto.EncodeResponse(*writeBuf, proto.OpRPop, 0, fr.Key, elem)
+	return true
+}
+
+func handleLLen(router api.ShardRouter, fr *proto.Frame, writeBuf *[]byte, rec api.Recorder, t0 time.Time) bool {
+	cache := router.CacheFor(fr.Key)
+	length, err := cache.LLen(fr.Key)
+	if err != nil {
+		*writeBuf = proto.EncodeResponse(*writeBuf, proto.OpLLen, 1, fr.Key, nil)
+		return true
+	}
+	var buf [4]byte
+	binary.LittleEndian.PutUint32(buf[:], length)
+	*writeBuf = proto.EncodeResponse(*writeBuf, proto.OpLLen, 0, fr.Key, buf[:])
+	return true
+}
+
+func handleSAdd(router api.ShardRouter, fr *proto.Frame, writeBuf *[]byte, rec api.Recorder, t0 time.Time) bool {
+	cache := router.CacheFor(fr.Key)
+	added, err := cache.SAdd(fr.Key, fr.Value)
+	if err != nil {
+		*writeBuf = proto.EncodeResponse(*writeBuf, proto.OpSAdd, 1, fr.Key, nil)
+		return true
+	}
+	status := uint8(0)
+	if !added {
+		status = 1
+	}
+	*writeBuf = proto.EncodeResponse(*writeBuf, proto.OpSAdd, status, fr.Key, nil)
+	return true
+}
+
+func handleSRem(router api.ShardRouter, fr *proto.Frame, writeBuf *[]byte, rec api.Recorder, t0 time.Time) bool {
+	cache := router.CacheFor(fr.Key)
+	removed, err := cache.SRem(fr.Key, fr.Value)
+	if err != nil || !removed {
+		*writeBuf = proto.EncodeResponse(*writeBuf, proto.OpSRem, 1, fr.Key, nil)
+		return true
+	}
+	*writeBuf = proto.EncodeResponse(*writeBuf, proto.OpSRem, 0, fr.Key, nil)
+	return true
+}
+
+func handleSIsMember(router api.ShardRouter, fr *proto.Frame, writeBuf *[]byte, rec api.Recorder, t0 time.Time) bool {
+	cache := router.CacheFor(fr.Key)
+	isMember, err := cache.SIsMember(fr.Key, fr.Value)
+	if err != nil || !isMember {
+		*writeBuf = proto.EncodeResponse(*writeBuf, proto.OpSIsMember, 1, fr.Key, nil)
+		return true
+	}
+	*writeBuf = proto.EncodeResponse(*writeBuf, proto.OpSIsMember, 0, fr.Key, nil)
+	return true
+}
+
+func handleSMembers(router api.ShardRouter, fr *proto.Frame, writeBuf *[]byte, rec api.Recorder, t0 time.Time) bool {
+	cache := router.CacheFor(fr.Key)
+	members, err := cache.SMembers(fr.Key)
+	if err != nil {
+		*writeBuf = proto.EncodeResponse(*writeBuf, proto.OpSMembers, 1, fr.Key, nil)
+		return true
+	}
+	payloadLen := 4
+	for i := range members {
+		payloadLen += 2 + len(members[i])
+	}
+	respPayload := make([]byte, payloadLen)
+	binary.LittleEndian.PutUint32(respPayload[:4], uint32(len(members)))
+	off := 4
+	for i := range members {
+		binary.LittleEndian.PutUint16(respPayload[off:off+2], uint16(len(members[i])))
+		copy(respPayload[off+2:], members[i])
+		off += 2 + len(members[i])
+	}
+	*writeBuf = proto.EncodeResponse(*writeBuf, proto.OpSMembers, 0, fr.Key, respPayload)
 	return true
 }

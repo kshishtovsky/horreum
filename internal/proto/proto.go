@@ -40,12 +40,33 @@ const (
 	opCodeScan      uint8 = 7
 	opCodeDelPrefix uint8 = 8
 
+	opCodeHSet    uint8 = 9
+	opCodeHGet    uint8 = 10
+	opCodeHDel    uint8 = 11
+	opCodeHGetAll uint8 = 12
+
+	opCodeLPush uint8 = 13
+	opCodeLPop  uint8 = 14
+	opCodeRPush uint8 = 15
+	opCodeRPop  uint8 = 16
+	opCodeLLen  uint8 = 17
+
+	opCodeSAdd      uint8 = 18
+	opCodeSRem      uint8 = 19
+	opCodeSIsMember uint8 = 20
+	opCodeSMembers  uint8 = 21
+
 	// Response status codes (encoded in flags on responses).
 	statusOK  uint8 = 0
 	statusErr uint8 = 1
 )
 
-var opName = [9]string{"", "GET", "SET", "DEL", "SETEX", "CAS", "INCR", "SCAN", "DELPREFIX"}
+var opName = [22]string{
+	"", "GET", "SET", "DEL", "SETEX", "CAS", "INCR", "SCAN", "DELPREFIX",
+	"HSET", "HGET", "HDEL", "HGETALL",
+	"LPUSH", "LPOP", "RPUSH", "RPOP", "LLEN",
+	"SADD", "SREM", "SISMEMBER", "SMEMBERS",
+}
 
 // OpCode is the parsed operation kind.
 type OpCode uint8
@@ -67,6 +88,22 @@ const (
 	OpIncr      OpCode = OpCode(opCodeIncr)
 	OpScan      OpCode = OpCode(opCodeScan)
 	OpDelPrefix OpCode = OpCode(opCodeDelPrefix)
+
+	OpHSet    OpCode = OpCode(opCodeHSet)
+	OpHGet    OpCode = OpCode(opCodeHGet)
+	OpHDel    OpCode = OpCode(opCodeHDel)
+	OpHGetAll OpCode = OpCode(opCodeHGetAll)
+
+	OpLPush OpCode = OpCode(opCodeLPush)
+	OpLPop  OpCode = OpCode(opCodeLPop)
+	OpRPush OpCode = OpCode(opCodeRPush)
+	OpRPop  OpCode = OpCode(opCodeRPop)
+	OpLLen  OpCode = OpCode(opCodeLLen)
+
+	OpSAdd      OpCode = OpCode(opCodeSAdd)
+	OpSRem      OpCode = OpCode(opCodeSRem)
+	OpSIsMember OpCode = OpCode(opCodeSIsMember)
+	OpSMembers  OpCode = OpCode(opCodeSMembers)
 )
 
 // Errors returned by the parser.
@@ -308,7 +345,10 @@ func (p *Parser) Parse() (Frame, error) {
 	}
 	var opc OpCode
 	switch op {
-	case opCodeGet, opCodeSet, opCodeDel, opCodeSetEx, opCodeCAS, opCodeIncr, opCodeScan, opCodeDelPrefix:
+	case opCodeGet, opCodeSet, opCodeDel, opCodeSetEx, opCodeCAS, opCodeIncr, opCodeScan, opCodeDelPrefix,
+		opCodeHSet, opCodeHGet, opCodeHDel, opCodeHGetAll,
+		opCodeLPush, opCodeLPop, opCodeRPush, opCodeRPop, opCodeLLen,
+		opCodeSAdd, opCodeSRem, opCodeSIsMember, opCodeSMembers:
 		opc = OpCode(op)
 	default:
 		return Frame{}, ErrUnknownOp
@@ -401,7 +441,10 @@ func (p *Parser) parseIn(work []byte) (Frame, error) {
 	}
 	var opc OpCode
 	switch op {
-	case opCodeGet, opCodeSet, opCodeDel, opCodeSetEx, opCodeCAS, opCodeIncr, opCodeScan, opCodeDelPrefix:
+	case opCodeGet, opCodeSet, opCodeDel, opCodeSetEx, opCodeCAS, opCodeIncr, opCodeScan, opCodeDelPrefix,
+		opCodeHSet, opCodeHGet, opCodeHDel, opCodeHGetAll,
+		opCodeLPush, opCodeLPop, opCodeRPush, opCodeRPop, opCodeLLen,
+		opCodeSAdd, opCodeSRem, opCodeSIsMember, opCodeSMembers:
 		opc = OpCode(op)
 	default:
 		return Frame{}, ErrUnknownOp

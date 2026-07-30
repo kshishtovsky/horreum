@@ -189,3 +189,33 @@ func (h *hitRouter) Scan(prefix []byte, cursor uint64, count int) ([][]byte, uin
 func (h *hitRouter) DelPrefix(prefix []byte) (uint64, error) { return 0, nil }
 func (h *hitCache) Scan(prefix []byte, cursor uint64, count int) ([][]byte, uint64, error) { return nil, 0, nil }
 func (h *hitCache) DelPrefix(prefix []byte) (uint64, error) { return 0, nil }
+
+
+func (m *mockCache) HSet(key, field, value []byte) (bool, error) { return false, nil }
+func (m *mockCache) HGet(key, field []byte) ([]byte, error) { return nil, nil }
+func (m *mockCache) HDel(key, field []byte) (bool, error) { return false, nil }
+func (m *mockCache) HGetAll(key []byte) ([][]byte, [][]byte, error) { return nil, nil, nil }
+func (m *mockCache) LPush(key, elem []byte) (uint32, error) { return 0, nil }
+func (m *mockCache) LPop(key []byte) ([]byte, error) { return nil, nil }
+func (m *mockCache) RPush(key, elem []byte) (uint32, error) { return 0, nil }
+func (m *mockCache) RPop(key []byte) ([]byte, error) { return nil, nil }
+func (m *mockCache) LLen(key []byte) (uint32, error) { return 0, nil }
+func (m *mockCache) SAdd(key, member []byte) (bool, error) { return false, nil }
+func (m *mockCache) SRem(key, member []byte) (bool, error) { return false, nil }
+func (m *mockCache) SIsMember(key, member []byte) (bool, error) { return false, nil }
+func (m *mockCache) SMembers(key []byte) ([][]byte, error) { return nil, nil }
+
+
+func (h *hitCache) HSet(key, field, value []byte) (bool, error) { return false, nil }
+func (h *hitCache) HGet(key, field []byte) ([]byte, error) { return nil, nil }
+func (h *hitCache) HDel(key, field []byte) (bool, error) { return false, nil }
+func (h *hitCache) HGetAll(key []byte) ([][]byte, [][]byte, error) { return nil, nil, nil }
+func (h *hitCache) LPush(key, elem []byte) (uint32, error) { return 0, nil }
+func (h *hitCache) LPop(key []byte) ([]byte, error) { return nil, nil }
+func (h *hitCache) RPush(key, elem []byte) (uint32, error) { return 0, nil }
+func (h *hitCache) RPop(key []byte) ([]byte, error) { return nil, nil }
+func (h *hitCache) LLen(key []byte) (uint32, error) { return 0, nil }
+func (h *hitCache) SAdd(key, member []byte) (bool, error) { return false, nil }
+func (h *hitCache) SRem(key, member []byte) (bool, error) { return false, nil }
+func (h *hitCache) SIsMember(key, member []byte) (bool, error) { return false, nil }
+func (h *hitCache) SMembers(key []byte) ([][]byte, error) { return nil, nil }

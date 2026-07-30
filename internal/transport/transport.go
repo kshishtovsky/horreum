@@ -16,6 +16,7 @@ import (
 
 	"github.com/horreum/horreum/internal/arena"
 	"github.com/horreum/horreum/internal/compress"
+	"github.com/horreum/horreum/internal/ds"
 	"github.com/horreum/horreum/internal/encrypt"
 	"github.com/horreum/horreum/internal/eviction"
 	"github.com/horreum/horreum/internal/transport/api"
@@ -429,6 +430,199 @@ func (s *shardCache) Close() error {
 		return nil
 	}
 	return s.mgr.Close()
+}
+
+// HSet implements CacheService.
+func (s *shardCache) HSet(key, field, value []byte) (bool, error) {
+	if s == nil {
+		return false, errBackendNil
+	}
+	raw, _ := s.Get(key)
+	newRaw, updated := ds.HSet(raw, field, value)
+	_, err := s.Set(key, newRaw, 0)
+	return updated, err
+}
+
+// HGet implements CacheService.
+func (s *shardCache) HGet(key, field []byte) ([]byte, error) {
+	if s == nil {
+		return nil, errBackendNil
+	}
+	raw, err := s.Get(key)
+	if err != nil {
+		return nil, err
+	}
+	val, ok := ds.HGet(raw, field)
+	if !ok {
+		return nil, ErrNotFound
+	}
+	return val, nil
+}
+
+// HDel implements CacheService.
+func (s *shardCache) HDel(key, field []byte) (bool, error) {
+	if s == nil {
+		return false, errBackendNil
+	}
+	raw, err := s.Get(key)
+	if err != nil {
+		return false, err
+	}
+	newRaw, deleted := ds.HDel(raw, field)
+	if !deleted {
+		return false, nil
+	}
+	if len(newRaw) == 0 {
+		_ = s.Delete(key)
+		return true, nil
+	}
+	_, err = s.Set(key, newRaw, 0)
+	return true, err
+}
+
+// HGetAll implements CacheService.
+func (s *shardCache) HGetAll(key []byte) ([][]byte, [][]byte, error) {
+	if s == nil {
+		return nil, nil, errBackendNil
+	}
+	raw, err := s.Get(key)
+	if err != nil {
+		return nil, nil, err
+	}
+	fields, values := ds.HGetAll(raw)
+	return fields, values, nil
+}
+
+// LPush implements CacheService.
+func (s *shardCache) LPush(key, elem []byte) (uint32, error) {
+	if s == nil {
+		return 0, errBackendNil
+	}
+	raw, _ := s.Get(key)
+	newRaw := ds.LPush(raw, elem)
+	_, err := s.Set(key, newRaw, 0)
+	return ds.LLen(newRaw), err
+}
+
+// LPop implements CacheService.
+func (s *shardCache) LPop(key []byte) ([]byte, error) {
+	if s == nil {
+		return nil, errBackendNil
+	}
+	raw, err := s.Get(key)
+	if err != nil {
+		return nil, err
+	}
+	newRaw, popped, ok := ds.LPop(raw)
+	if !ok {
+		return nil, ErrNotFound
+	}
+	if len(newRaw) == 0 {
+		_ = s.Delete(key)
+	} else {
+		_, _ = s.Set(key, newRaw, 0)
+	}
+	return popped, nil
+}
+
+// RPush implements CacheService.
+func (s *shardCache) RPush(key, elem []byte) (uint32, error) {
+	if s == nil {
+		return 0, errBackendNil
+	}
+	raw, _ := s.Get(key)
+	newRaw := ds.RPush(raw, elem)
+	_, err := s.Set(key, newRaw, 0)
+	return ds.LLen(newRaw), err
+}
+
+// RPop implements CacheService.
+func (s *shardCache) RPop(key []byte) ([]byte, error) {
+	if s == nil {
+		return nil, errBackendNil
+	}
+	raw, err := s.Get(key)
+	if err != nil {
+		return nil, err
+	}
+	newRaw, popped, ok := ds.RPop(raw)
+	if !ok {
+		return nil, ErrNotFound
+	}
+	if len(newRaw) == 0 {
+		_ = s.Delete(key)
+	} else {
+		_, _ = s.Set(key, newRaw, 0)
+	}
+	return popped, nil
+}
+
+// LLen implements CacheService.
+func (s *shardCache) LLen(key []byte) (uint32, error) {
+	if s == nil {
+		return 0, errBackendNil
+	}
+	raw, err := s.Get(key)
+	if err != nil {
+		return 0, nil
+	}
+	return ds.LLen(raw), nil
+}
+
+// SAdd implements CacheService.
+func (s *shardCache) SAdd(key, member []byte) (bool, error) {
+	if s == nil {
+		return false, errBackendNil
+	}
+	raw, _ := s.Get(key)
+	newRaw, added := ds.SAdd(raw, member)
+	_, err := s.Set(key, newRaw, 0)
+	return added, err
+}
+
+// SRem implements CacheService.
+func (s *shardCache) SRem(key, member []byte) (bool, error) {
+	if s == nil {
+		return false, errBackendNil
+	}
+	raw, err := s.Get(key)
+	if err != nil {
+		return false, err
+	}
+	newRaw, removed := ds.SRem(raw, member)
+	if !removed {
+		return false, nil
+	}
+	if len(newRaw) == 0 {
+		_ = s.Delete(key)
+	} else {
+		_, _ = s.Set(key, newRaw, 0)
+	}
+	return true, nil
+}
+
+// SIsMember implements CacheService.
+func (s *shardCache) SIsMember(key, member []byte) (bool, error) {
+	if s == nil {
+		return false, errBackendNil
+	}
+	raw, err := s.Get(key)
+	if err != nil {
+		return false, nil
+	}
+	return ds.SIsMember(raw, member), nil
+}
+
+// SMembers implements CacheService.
+func (s *shardCache) SMembers(key []byte) ([][]byte, error) {
+	if s == nil {
+		return nil, errBackendNil
+	}
+	raw, err := s.Get(key)
+	if err != nil {
+		return nil, nil
+	}
+	return ds.SMembers(raw), nil
 }
 
 // shardIndex is a minimal key→handle hash index.  Not concurrent-safe.

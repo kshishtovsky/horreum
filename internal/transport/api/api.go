@@ -48,6 +48,22 @@ type CacheService interface {
 	Incr(key []byte, delta int64) (int64, error)
 	Scan(prefix []byte, cursor uint64, count int) ([][]byte, uint64, error)
 	DelPrefix(prefix []byte) (uint64, error)
+	// Hashes
+	HSet(key, field, value []byte) (updated bool, err error)
+	HGet(key, field []byte) (value []byte, err error)
+	HDel(key, field []byte) (deleted bool, err error)
+	HGetAll(key []byte) (fields, values [][]byte, err error)
+	// Lists
+	LPush(key, elem []byte) (length uint32, err error)
+	LPop(key []byte) (elem []byte, err error)
+	RPush(key, elem []byte) (length uint32, err error)
+	RPop(key []byte) (elem []byte, err error)
+	LLen(key []byte) (length uint32, err error)
+	// Sets
+	SAdd(key, member []byte) (added bool, err error)
+	SRem(key, member []byte) (removed bool, err error)
+	SIsMember(key, member []byte) (isMember bool, err error)
+	SMembers(key []byte) (members [][]byte, err error)
 	Close() error
 }
 

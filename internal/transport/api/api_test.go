@@ -18,6 +18,7 @@ func (m *mockTransport) Addr() net.Addr                  { return m.addr }
 type mockRouter struct{}
 
 func (m *mockRouter) CacheFor(key []byte) CacheService { return nil }
+func (m *mockRouter) CacheIndexFor(key []byte) int     { return 0 }
 func (m *mockRouter) ShardCount() int                  { return 1 }
 
 func TestServerFactory(t *testing.T) {

@@ -40,6 +40,7 @@ type mockRouter struct {
 }
 
 func (m *mockRouter) CacheFor(key []byte) api.CacheService { return m.cache }
+func (m *mockRouter) CacheIndexFor(key []byte) int         { return 0 }
 func (m *mockRouter) ShardCount() int                      { return 1 }
 
 func TestTCPTransport(t *testing.T) {
@@ -166,7 +167,7 @@ func TestHandleFrameUnknownOp(t *testing.T) {
 	mr := &mockRouter{cache: mc}
 	var buf []byte
 	fr := &proto.Frame{Op: 99, Key: []byte("test")}
-	if handleFrame(mr, fr, &buf, noopRecorder{}) {
+	if handleFrame(mr, fr, &buf, noopRecorder{}, 0) {
 		t.Error("expected handleFrame to return false for unknown Op")
 	}
 }
@@ -184,6 +185,7 @@ type errorRouter struct {
 }
 
 func (e *errorRouter) CacheFor(key []byte) api.CacheService { return e.cache }
+func (e *errorRouter) CacheIndexFor(key []byte) int         { return 0 }
 func (e *errorRouter) ShardCount() int                      { return 1 }
 
 func TestHandleFrameSetError(t *testing.T) {
@@ -191,7 +193,7 @@ func TestHandleFrameSetError(t *testing.T) {
 	er := &errorRouter{cache: ec}
 	var buf []byte
 	fr := &proto.Frame{Op: proto.OpSet, Key: []byte("test"), Value: []byte("val")}
-	if !handleFrame(er, fr, &buf, noopRecorder{}) {
+	if !handleFrame(er, fr, &buf, noopRecorder{}, 0) {
 		t.Error("expected handleFrame to return true on handled set error")
 	}
 }

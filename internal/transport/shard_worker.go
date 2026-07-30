@@ -9,19 +9,15 @@ package transport
 
 import (
 	"context"
-	"net"
 	"sync"
 	"sync/atomic"
 )
 
 // Job is a unit of work routed to a shard worker.
 type Job struct {
-	// Conn is the TCP connection or QUIC stream wrapped as net.Conn
-	// (the QUIC handler uses a stream adapter — see quic/server.go).
-	Conn net.Conn
-	// Handle runs the job.  The worker invokes it on the shard
-	// goroutine, so the handler is single-threaded by construction.
-	Handle func(Job)
+	// Handle runs the job. The boolean argument indicates if the job
+	// was canceled (e.g. during shutdown before execution).
+	Handle func(canceled bool)
 }
 
 // shardWorker processes one shard's jobs serially.
@@ -60,7 +56,7 @@ func (w *shardWorker) start() {
 					}
 				}
 			case j := <-w.queue:
-				j.Handle(j)
+				j.Handle(false)
 			}
 		}
 	}()
@@ -97,8 +93,8 @@ func (w *shardWorker) shutdown(ctx context.Context) {
 }
 
 func closeJob(j Job) {
-	if j.Conn != nil {
-		_ = j.Conn.Close()
+	if j.Handle != nil {
+		j.Handle(true)
 	}
 }
 

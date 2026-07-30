@@ -447,6 +447,14 @@ func (ss *ShardSet) CacheFor(key []byte) CacheService {
 	return ss.shards[hashKey(key)%uint64(len(ss.shards))]
 }
 
+// CacheIndexFor returns the shard index that owns key.
+func (ss *ShardSet) CacheIndexFor(key []byte) int {
+	if ss == nil || len(ss.shards) == 0 {
+		return 0
+	}
+	return int(hashKey(key) % uint64(len(ss.shards)))
+}
+
 // ShardCount returns the number of shards.
 func (ss *ShardSet) ShardCount() int {
 	if ss == nil {

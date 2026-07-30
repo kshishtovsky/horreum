@@ -21,6 +21,7 @@ func (m *mockCache) Close() error                          { return nil }
 type mockRouter struct{}
 
 func (m *mockRouter) CacheFor(key []byte) api.CacheService { return &mockCache{} }
+func (m *mockRouter) CacheIndexFor(key []byte) int         { return 0 }
 func (m *mockRouter) ShardCount() int                      { return 1 }
 
 func TestQUICTransportValidation(t *testing.T) {
@@ -49,25 +50,25 @@ func TestHandleFrameQUIC(t *testing.T) {
 
 	// Unknown opcode
 	fr := &proto.Frame{Op: 99, Key: []byte("k")}
-	if handleFrameQUIC(mr, fr, &buf, noopRecorder{}) {
+	if handleFrameQUIC(mr, fr, &buf, noopRecorder{}, 0) {
 		t.Error("expected handleFrameQUIC to return false for unknown Op")
 	}
 
 	// Set
 	frSet := &proto.Frame{Op: proto.OpSet, Key: []byte("k"), Value: []byte("v")}
-	if !handleFrameQUIC(mr, frSet, &buf, noopRecorder{}) {
+	if !handleFrameQUIC(mr, frSet, &buf, noopRecorder{}, 0) {
 		t.Error("expected handleFrameQUIC to succeed for Set")
 	}
 
 	// Get missing
 	frGet := &proto.Frame{Op: proto.OpGet, Key: []byte("k")}
-	if !handleFrameQUIC(mr, frGet, &buf, noopRecorder{}) {
+	if !handleFrameQUIC(mr, frGet, &buf, noopRecorder{}, 0) {
 		t.Error("expected handleFrameQUIC to handle Get missing")
 	}
 
 	// Del
 	frDel := &proto.Frame{Op: proto.OpDel, Key: []byte("k")}
-	if !handleFrameQUIC(mr, frDel, &buf, noopRecorder{}) {
+	if !handleFrameQUIC(mr, frDel, &buf, noopRecorder{}, 0) {
 		t.Error("expected handleFrameQUIC to succeed for Del")
 	}
 }
@@ -87,7 +88,7 @@ func TestHandleFrameQUICGetHit(t *testing.T) {
 	mr := &hitRouter{}
 	var buf []byte
 	frGet := &proto.Frame{Op: proto.OpGet, Key: []byte("k")}
-	if !handleFrameQUIC(mr, frGet, &buf, noopRecorder{}) {
+	if !handleFrameQUIC(mr, frGet, &buf, noopRecorder{}, 0) {
 		t.Error("handleFrameQUIC returned false on Get-hit")
 	}
 	if !bytes.Contains(buf, []byte("hit-value")) {
@@ -151,6 +152,7 @@ func TestErrNoCertIsExported(t *testing.T) {
 type hitRouter struct{}
 
 func (h *hitRouter) CacheFor(key []byte) api.CacheService { return &hitCache{} }
+func (h *hitRouter) CacheIndexFor(key []byte) int         { return 0 }
 func (h *hitRouter) ShardCount() int                      { return 1 }
 
 type hitCache struct{}

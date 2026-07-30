@@ -48,6 +48,7 @@ type CacheService interface {
 // invariant.
 type ShardRouter interface {
 	CacheFor(key []byte) CacheService
+	CacheIndexFor(key []byte) int
 	// ShardCount returns the number of shards.  Transports use this
 	// to size their per-shard worker pools.
 	ShardCount() int

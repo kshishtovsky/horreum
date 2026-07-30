@@ -187,45 +187,60 @@ func (p *Parser) Parse() (Frame, error) {
 		Value: p.pending[headerSize+keyLen : total],
 		flags: flags,
 	}
-	// Shift pending.
-	remain := copy(p.pending, p.pending[total:])
-	p.pending = p.pending[:remain]
+	// Slide pending forward without copying, so the returned zero-copy
+	// frame retains valid references to the original backing array.
+	p.pending = p.pending[total:]
 	return f, nil
 }
 
-// Feed consumes complete frames from buf and returns them.  Any trailing
-// partial frame is retained internally.  If buf shares backing storage
-// with a prior Feed's tail, the returned Frame slices still alias the
-// original caller-provided buffer.
-//
-// On parse error the parser is reset and the error is returned; the
-// caller should close the connection.
+// Feed appends buf to any pending bytes and attempts to parse all
+// complete frames.  Returns parsed frames (which borrow memory from
+// buf/pending) and an error if the connection should be dropped.
 func (p *Parser) Feed(buf []byte) ([]Frame, error) {
-	// If we have pending bytes, prepend them logically.
-	work := buf
-	if len(p.pending) > 0 {
-		// Concatenate pending + buf into a local working buffer.
-		// This is a single allocation per partial frame — acceptable
-		// because we hit it at most once per frame.
-		merged := make([]byte, 0, len(p.pending)+len(buf))
-		merged = append(merged, p.pending...)
-		merged = append(merged, buf...)
-		work = merged
+	if len(p.pending) == 0 {
+		work := buf
+		var frames []Frame
+		for {
+			f, err := p.parseIn(work)
+			if err == io.ErrShortBuffer {
+				if len(work) > 0 {
+					p.pending = append(p.pending[:0], work...)
+				}
+				return frames, nil
+			}
+			if err != nil {
+				p.Reset()
+				return frames, err
+			}
+			consumed := headerSize + len(f.Key) + len(f.Value)
+			work = work[consumed:]
+			frames = append(frames, f)
+		}
 	}
+
+	p.pending = append(p.pending, buf...)
+	work := p.pending
 
 	var frames []Frame
 	for {
 		f, err := p.parseIn(work)
 		if err == io.ErrShortBuffer {
-			// Incomplete frame — buffer the partial.
-			p.pending = append(p.pending[:0], work...)
+			if len(work) == 0 {
+				p.pending = p.pending[:0] // keep capacity
+			} else if len(work) < cap(p.pending)/2 {
+				// Slide to the front of the backing array to reclaim capacity.
+				remain := copy(p.pending[:cap(p.pending)], work)
+				p.pending = p.pending[:remain]
+			} else {
+				// Avoid O(N) sliding if we haven't consumed much.
+				p.pending = work
+			}
 			return frames, nil
 		}
 		if err != nil {
 			p.Reset()
 			return frames, err
 		}
-		// Advance work past this frame.
 		consumed := headerSize + len(f.Key) + len(f.Value)
 		work = work[consumed:]
 		frames = append(frames, f)

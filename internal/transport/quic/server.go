@@ -138,13 +138,13 @@ func (t *Transport) serveConn(conn *quic.Conn) {
 		// same QUIC connection may touch different shards (their
 		// keys may differ), but ordering per shard is preserved.
 		idx := shardIndexForStream(stream, t.workers.ShardCount())
-		t.workers.Submit(transport.Job{Conn: sc, Handle: t.serveStream}, idx)
+		go t.serveStream(sc, idx)
 	}
 }
 
-// serveStream processes one request/response on one stream.
-func (t *Transport) serveStream(j transport.Job) {
-	c := j.Conn
+// serveStream processes one request/response on one stream. Network IO runs here,
+// while cache operations are submitted to the shard worker for serial execution.
+func (t *Transport) serveStream(c net.Conn, workerIdx int) {
 	remoteAddr := c.RemoteAddr().String()
 	defer c.Close()
 	_ = c.SetDeadline(time.Now().Add(idleTimeoutQUIC))
@@ -178,16 +178,41 @@ func (t *Transport) serveStream(j transport.Job) {
 			}
 			return
 		}
-		for i := range frames {
-			if !handleFrameQUIC(t.router, &frames[i], &writeBuf, t.recorder) {
+		if len(frames) > 0 {
+			done := make(chan struct{})
+			var processErr bool
+
+			submitted := t.workers.Submit(transport.Job{
+				Handle: func(canceled bool) {
+					if canceled {
+						processErr = true
+					} else {
+						for i := range frames {
+							if !handleFrameQUIC(t.router, &frames[i], &writeBuf, t.recorder, workerIdx) {
+								processErr = true
+								break
+							}
+						}
+					}
+					close(done)
+				},
+			}, workerIdx)
+
+			if !submitted {
 				return
 			}
-		}
-		if len(writeBuf) > 0 {
-			if _, err := c.Write(writeBuf); err != nil {
+			<-done
+
+			if processErr {
 				return
 			}
-			writeBuf = writeBuf[:0]
+
+			if len(writeBuf) > 0 {
+				if _, err := c.Write(writeBuf); err != nil {
+					return
+				}
+				writeBuf = writeBuf[:0]
+			}
 		}
 		_ = c.SetDeadline(time.Now().Add(idleTimeoutQUIC))
 	}
@@ -230,7 +255,12 @@ const (
 )
 
 // handleFrameQUIC is the per-frame handler.
-func handleFrameQUIC(router api.ShardRouter, fr *proto.Frame, writeBuf *[]byte, rec api.Recorder) bool {
+func handleFrameQUIC(router api.ShardRouter, fr *proto.Frame, writeBuf *[]byte, rec api.Recorder, workerIdx int) bool {
+	if router.CacheIndexFor(fr.Key) != workerIdx {
+		// Key belongs to a different shard. Reject to prevent data races.
+		*writeBuf = proto.EncodeResponse(*writeBuf, fr.Op, 1, fr.Key, nil)
+		return true
+	}
 	cache := router.CacheFor(fr.Key)
 	status := "ok"
 	t0 := time.Now()

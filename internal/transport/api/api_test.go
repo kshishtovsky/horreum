@@ -18,6 +18,7 @@ func (m *mockTransport) Addr() net.Addr                  { return m.addr }
 type mockRouter struct{}
 
 func (m *mockRouter) CacheFor(key []byte) CacheService { return nil }
+func (m *mockRouter) CacheIndexFor(key []byte) int     { return 0 }
 func (m *mockRouter) ShardCount() int                  { return 1 }
 
 func TestServerFactory(t *testing.T) {
@@ -65,4 +66,12 @@ func TestServerFactory(t *testing.T) {
 	if err := srv.Shutdown(context.Background()); err != nil {
 		t.Error(err)
 	}
+}
+
+
+func (m *mockRouter) Scan(prefix []byte, cursor uint64, count int) ([][]byte, uint64, error) {
+	return nil, 0, nil
+}
+func (m *mockRouter) DelPrefix(prefix []byte) (uint64, error) {
+	return 0, nil
 }

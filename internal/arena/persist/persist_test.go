@@ -14,6 +14,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -280,19 +281,27 @@ func main() {
 		t.Fatalf("build helper: %v\n%s", err, out)
 	}
 
-	// Run helper, then kill it after a short delay.
+	// Run helper, then kill it after a short delay once READY.
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, helperBin, dir, fmt.Sprint(numObjects), fmt.Sprint(payloadSize))
-	cmd.Stdout = os.Stdout
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		t.Fatalf("stdout pipe: %v", err)
+	}
 	cmd.Stderr = os.Stderr
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("start helper: %v", err)
 	}
 
-	// Wait a few ms, then SIGKILL.  The helper writes one object
-	// per ms-ish; we want to interrupt somewhere in the middle.
-	time.Sleep(5 * time.Millisecond)
+	// Wait until helper has initialized and written the superblock ("READY\n").
+	buf := make([]byte, 6)
+	if _, err := io.ReadFull(stdout, buf); err != nil {
+		t.Fatalf("read ready: %v", err)
+	}
+
+	// Wait a few ms mid-flight, then SIGKILL.
+	time.Sleep(20 * time.Millisecond)
 	if err := cmd.Process.Kill(); err != nil {
 		t.Fatalf("kill helper: %v", err)
 	}
@@ -483,7 +492,7 @@ func TestCheckpointRoundTrip(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Put: %v", err)
 		}
-		if !src.Add(key, h) {
+		if !src.Add(key, h, 0) {
 			t.Fatalf("Add returned false for key %q", key)
 		}
 		want[string(key)] = h
@@ -502,7 +511,7 @@ func TestCheckpointRoundTrip(t *testing.T) {
 		t.Errorf("dst.Count = %d, want %d", dst.Count(), n)
 	}
 	for k, hd := range want {
-		got, ok := dst.Get([]byte(k))
+		got, ok := dst.Get([]byte(k), 0)
 		if !ok {
 			t.Errorf("dst.Get(%q) = false", k)
 			continue
@@ -541,7 +550,7 @@ func TestColdStartLoadsCheckpoint(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Put: %v", err)
 		}
-		if !idx.Add(key, h) {
+		if !idx.Add(key, h, 0) {
 			t.Fatalf("Add returned false for %q", key)
 		}
 	}
@@ -574,7 +583,7 @@ func TestColdStartLoadsCheckpoint(t *testing.T) {
 	// Verify every key resolves and returns the correct value.
 	for i := 0; i < n; i++ {
 		key := []byte(fmt.Sprintf("k%05d", i))
-		h, ok := idx2.Get(key)
+		h, ok := idx2.Get(key, 0)
 		if !ok {
 			t.Errorf("key %q missing after restart", key)
 			continue
@@ -621,7 +630,7 @@ func TestCheckpointWALTruncate(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Put: %v", err)
 		}
-		idx.Put(key, h)
+		idx.Put(key, h, 0)
 	}
 	if pm.WAL().Offset() == 0 {
 		t.Fatal("WAL offset is 0 after writes; expected non-zero")
@@ -655,7 +664,7 @@ func TestColdStartLargeCheckpoint(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Put: %v", err)
 		}
-		if !idx.Add(key, h) {
+		if !idx.Add(key, h, 0) {
 			t.Fatalf("Add returned false for %q", key)
 		}
 	}
@@ -748,7 +757,7 @@ func TestReplayNoMgrPut(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Put: %v", err)
 		}
-		idx.Add(key, h)
+		idx.Add(key, h, 0)
 	}
 	statsBefore := pm.Manager().Stats()
 	// Replay into a fresh index — replay must NOT allocate in arena.

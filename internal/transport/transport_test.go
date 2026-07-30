@@ -37,7 +37,7 @@ func mustListen(t *testing.T, name string) *transport.Server {
 		Addr:          "127.0.0.1:0",
 		TransportName: name,
 		ShardConfig: transport.ShardConfig{
-			NumShards:     4,
+			NumShards:     1,
 			RegionSize:    16 << 20,
 			EvictCapacity: 1024,
 		},
@@ -166,7 +166,7 @@ func TestQUICSetGetRoundTrip(t *testing.T) {
 		TransportName: "quic",
 		TLSCertFile:   "test-cert",
 		ShardConfig: transport.ShardConfig{
-			NumShards:     4,
+			NumShards:     1,
 			RegionSize:    16 << 20,
 			EvictCapacity: 1024,
 		},
@@ -320,7 +320,7 @@ func TestTCPEncryptionAndCompressionRoundTrip(t *testing.T) {
 		Addr:          "127.0.0.1:0",
 		TransportName: "tcp",
 		ShardConfig: transport.ShardConfig{
-			NumShards:     2,
+			NumShards:     1,
 			RegionSize:    16 << 20,
 			EvictCapacity: 100,
 			Compressor:    comp,

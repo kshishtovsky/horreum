@@ -45,13 +45,15 @@ import (
 const (
 	walOpSet uint8 = 1
 	walOpDel uint8 = 2
+	walOpSetEx uint8 = 3
 )
 
 // Header sizes per op.  Kept distinct so the tail repair code can
 // detect corruption unambiguously.
 const (
-	walHeaderSizeSet = 4 + 1 + 2 + 4 + 4 + 4 + 1 // 20 bytes
-	walHeaderSizeDel = 4 + 1 + 2 + 4             // 12 bytes
+	walHeaderSizeSet   = 4 + 1 + 2 + 4 + 4 + 4 + 1 // 20 bytes
+	walHeaderSizeSetEx = 4 + 1 + 2 + 4 + 4 + 4 + 1 + 4 // 24 bytes
+	walHeaderSizeDel   = 4 + 1 + 2 + 4             // 12 bytes
 )
 
 // TestWALHeaderSizeSet exposes the SET header constant for tests.
@@ -87,6 +89,8 @@ func walHeaderSize(op uint8) int64 {
 	switch op {
 	case walOpSet:
 		return walHeaderSizeSet
+	case walOpSetEx:
+		return walHeaderSizeSetEx
 	case walOpDel:
 		return walHeaderSizeDel
 	default:
@@ -180,7 +184,12 @@ func (w *WAL) repairTail() error {
 // arena.Manager.Put; recovery uses h to re-establish the index entry
 // without re-allocating in the arena.
 func (w *WAL) AppendSet(key, value []byte, h arenaHandleLike) (int64, error) {
-	return w.appendRecord(walOpSet, key, value, h)
+	return w.appendRecord(walOpSet, key, value, h, 0)
+}
+
+// AppendSetEx appends a SETEX record and returns its on-disk offset.
+func (w *WAL) AppendSetEx(key, value []byte, h arenaHandleLike, expiresAt uint32) (int64, error) {
+	return w.appendRecord(walOpSetEx, key, value, h, expiresAt)
 }
 
 // arenaHandleLike is the subset of arena.Handle fields the WAL needs.
@@ -200,10 +209,10 @@ func ArenaHandleLikeForTest(offset, size uint32, region uint8) arenaHandleLike {
 
 // AppendDel appends a DEL record.
 func (w *WAL) AppendDel(key []byte) (int64, error) {
-	return w.appendRecord(walOpDel, key, nil, arenaHandleLike{})
+	return w.appendRecord(walOpDel, key, nil, arenaHandleLike{}, 0)
 }
 
-func (w *WAL) appendRecord(op uint8, key, value []byte, h arenaHandleLike) (int64, error) {
+func (w *WAL) appendRecord(op uint8, key, value []byte, h arenaHandleLike, expiresAt uint32) (int64, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	hdrSize := walHeaderSize(op)
@@ -219,11 +228,14 @@ func (w *WAL) appendRecord(op uint8, key, value []byte, h arenaHandleLike) (int6
 	copy(hdr[0:4], walMagic[:])
 	hdr[4] = op
 	binary.LittleEndian.PutUint16(hdr[5:7], uint16(len(key)))
-	if op == walOpSet {
+	if op == walOpSet || op == walOpSetEx {
 		binary.LittleEndian.PutUint32(hdr[7:11], uint32(len(value)))
 		binary.LittleEndian.PutUint32(hdr[11:15], h.Offset)
 		binary.LittleEndian.PutUint32(hdr[15:19], h.Size)
 		hdr[19] = h.Region
+		if op == walOpSetEx {
+			binary.LittleEndian.PutUint32(hdr[20:24], expiresAt)
+		}
 	} else {
 		binary.LittleEndian.PutUint32(hdr[7:11], 0) // valLen=0
 	}
@@ -239,7 +251,7 @@ func (w *WAL) appendRecord(op uint8, key, value []byte, h arenaHandleLike) (int6
 		}
 		pos += int64(len(key))
 	}
-	if op == walOpSet && len(value) > 0 {
+	if (op == walOpSet || op == walOpSetEx) && len(value) > 0 {
 		if _, err := w.file.WriteAt(value, pos); err != nil {
 			return 0, fmt.Errorf("wal: write val: %w", err)
 		}
@@ -290,12 +302,13 @@ func (w *WAL) Rotate() error {
 // Offset/Size/Region are only populated for SET records (Op == walOpSet).
 // For DEL records they are zero.
 type WALRecord struct {
-	Op     uint8
-	Key    []byte
-	Value  []byte
-	Offset uint32
-	Size   uint32
-	Region uint8
+	Op        uint8
+	Key       []byte
+	Value     []byte
+	Offset    uint32
+	Size      uint32
+	Region    uint8
+	ExpiresAt uint32
 }
 
 // WALIterator scans a WAL file from offset 0.
@@ -349,10 +362,13 @@ func (it *WALIterator) Next() (WALRecord, error) {
 		return WALRecord{}, io.EOF
 	}
 	rec := WALRecord{Op: op}
-	if op == walOpSet {
+	if op == walOpSet || op == walOpSetEx {
 		rec.Offset = binary.LittleEndian.Uint32(hdr[11:15])
 		rec.Size = binary.LittleEndian.Uint32(hdr[15:19])
 		rec.Region = hdr[19]
+		if op == walOpSetEx {
+			rec.ExpiresAt = binary.LittleEndian.Uint32(hdr[20:24])
+		}
 	}
 	if keyLen > 0 {
 		rec.Key = make([]byte, keyLen)
@@ -360,7 +376,7 @@ func (it *WALIterator) Next() (WALRecord, error) {
 			return WALRecord{}, err
 		}
 	}
-	if op == walOpSet && valLen > 0 {
+	if (op == walOpSet || op == walOpSetEx) && valLen > 0 {
 		rec.Value = make([]byte, valLen)
 		if _, err := it.file.ReadAt(rec.Value, it.off+int64(hdrSize)+int64(keyLen)); err != nil {
 			return WALRecord{}, err

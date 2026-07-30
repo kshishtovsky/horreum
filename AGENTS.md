@@ -38,7 +38,8 @@ make clean   # rm -f bench/phase1.txt
 
 Before coding, load required skills via `@skill-name`. Skill files live at `.agents/skills/<name>/SKILL.md`.
 
-Task 01 required skills:
+Required skills:
+
 - `@go-zero-copy` — unsafe.Slice/unsafe.Add over mmap'd memory
 - `@arena-allocator` — bump + segregated freelist, size classes, alignment
 - `@mmap-linux` — unix.Mmap/Munmap/Msync/Madvise

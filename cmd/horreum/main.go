@@ -151,7 +151,8 @@ func main() {
 	initMetrics()
 
 	sb := initStorage(*persistPath, *durable, *regionSize, *shards, *evictCapacity, comp, cip)
-	go updateGauges(sb.sets, sb.index)
+	ctx, cancelGauges := context.WithCancel(context.Background())
+	go updateGauges(ctx, sb.sets, sb.index)
 
 	metricsSrv, err := metrics.NewMetricsServer(*metricsAddr)
 	if err != nil {
@@ -166,7 +167,7 @@ func main() {
 	coord := shutdown.New()
 	coord.Register("stop-listener", srv.Shutdown)
 	coord.Register("metrics", metricsSrv.Shutdown)
-	coord.Register("storage", func(ctx context.Context) error { return sb.closeStorage() })
+	coord.Register("storage", func(ctx context.Context) error { cancelGauges(); return sb.closeStorage() })
 
 	go coord.WaitForSignal()
 	go func() {
@@ -491,15 +492,20 @@ func buildShardSetFromArena(mgr *arena.Manager, numShards int, evictCap uint64, 
 	return transport.NewShardSetFromArena(mgr, numShards, evictCap, comp, cipher)
 }
 
-func updateGauges(sets *transport.ShardSet, idx *index.HashIndex) {
+func updateGauges(ctx context.Context, sets *transport.ShardSet, idx *index.HashIndex) {
 	t := time.NewTicker(time.Second)
 	defer t.Stop()
-	for range t.C {
-		s := sets.Stats()
-		metrics.SetGauge(memUsedGauge, s.UsedBytes)
-		metrics.SetGauge(memFreeGauge, s.FreeBytes)
-		if idx != nil {
-			metrics.SetGauge(indexKeysGauge, uint64(idx.Count()))
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			s := sets.Stats()
+			metrics.SetGauge(memUsedGauge, s.UsedBytes)
+			metrics.SetGauge(memFreeGauge, s.FreeBytes)
+			if idx != nil {
+				metrics.SetGauge(indexKeysGauge, uint64(idx.Count()))
+			}
 		}
 	}
 }

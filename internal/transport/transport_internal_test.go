@@ -36,7 +36,7 @@ func TestShardSetBasic(t *testing.T) {
 	if c == nil {
 		t.Fatal("CacheFor returned nil")
 	}
-	out, err := c.Set([]byte("k"), []byte("v"))
+	out, err := c.Set([]byte("k"), []byte("v"), 0)
 	if err != nil {
 		t.Fatalf("Set: %v", err)
 	}
@@ -124,7 +124,7 @@ func TestShardSetStats(t *testing.T) {
 		t.Errorf("LiveObjects on fresh = %d, want 0", st.LiveObjects)
 	}
 	c := ss.CacheFor([]byte("k"))
-	if _, err := c.Set([]byte("k"), []byte("v")); err != nil {
+	if _, err := c.Set([]byte("k"), []byte("v"), 0); err != nil {
 		t.Fatalf("Set: %v", err)
 	}
 	st = ss.Stats()
@@ -217,7 +217,7 @@ func TestNewShardSetFromArena(t *testing.T) {
 	if c == nil {
 		t.Fatal("CacheFor returned nil")
 	}
-	if _, err := c.Set([]byte("k"), []byte("v")); err != nil {
+	if _, err := c.Set([]byte("k"), []byte("v"), 0); err != nil {
 		t.Fatalf("Set: %v", err)
 	}
 	if _, err := c.Get([]byte("k")); err != nil {
@@ -324,7 +324,7 @@ func TestSetGetCompression(t *testing.T) {
 	defer ss.Close()
 	c := ss.CacheFor([]byte("k"))
 	plain := []byte("compressible-compressible-compressible-compressible-payload")
-	out, err := c.Set([]byte("k"), plain)
+	out, err := c.Set([]byte("k"), plain, 0)
 	if err != nil {
 		t.Fatalf("Set: %v", err)
 	}
@@ -358,7 +358,7 @@ func TestSetGetEncryption(t *testing.T) {
 	}
 	defer ss.Close()
 	c := ss.CacheFor([]byte("k"))
-	if _, err := c.Set([]byte("k"), []byte("secret")); err != nil {
+	if _, err := c.Set([]byte("k"), []byte("secret"), 0); err != nil {
 		t.Fatalf("Set: %v", err)
 	}
 	got, err := c.Get([]byte("k"))
@@ -396,7 +396,7 @@ func TestSetTooLarge(t *testing.T) {
 	defer ss.Close()
 	c := ss.CacheFor([]byte("k"))
 	huge := make([]byte, arena.MaxObjectSize+1)
-	if _, err := c.Set([]byte("k"), huge); !errors.Is(err, transport.ErrTooLarge) {
+	if _, err := c.Set([]byte("k"), huge, 0); !errors.Is(err, transport.ErrTooLarge) {
 		t.Errorf("Set(huge) = %v, want ErrTooLarge", err)
 	}
 }
@@ -428,10 +428,10 @@ func TestShardSetBasicSetOverwrite(t *testing.T) {
 	}
 	defer ss.Close()
 	c := ss.CacheFor([]byte("k"))
-	if _, err := c.Set([]byte("k"), []byte("v1")); err != nil {
+	if _, err := c.Set([]byte("k"), []byte("v1"), 0); err != nil {
 		t.Fatalf("Set v1: %v", err)
 	}
-	if _, err := c.Set([]byte("k"), []byte("v2")); err != nil {
+	if _, err := c.Set([]byte("k"), []byte("v2"), 0); err != nil {
 		t.Fatalf("Set v2: %v", err)
 	}
 	got, err := c.Get([]byte("k"))
@@ -464,7 +464,7 @@ func TestShardSetDeleteWithCollisions(t *testing.T) {
 	const n = 100
 	for i := 0; i < n; i++ {
 		key := []byte{byte(i), byte(i >> 8)}
-		if _, err := c.Set(key, []byte("v")); err != nil {
+		if _, err := c.Set(key, []byte("v"), 0); err != nil {
 			t.Fatalf("Set: %v", err)
 		}
 	}
@@ -478,7 +478,7 @@ func TestShardSetDeleteWithCollisions(t *testing.T) {
 	// Insert + delete again to exercise additional paths.
 	for i := 0; i < n; i++ {
 		key := []byte{byte(i), byte(i >> 8)}
-		if _, err := c.Set(key, []byte("v")); err != nil {
+		if _, err := c.Set(key, []byte("v"), 0); err != nil {
 			t.Fatalf("Set 2nd: %v", err)
 		}
 	}
@@ -508,7 +508,7 @@ func TestShardSetGrowIndex(t *testing.T) {
 	const n = 300
 	for i := 0; i < n; i++ {
 		key := []byte(fmt.Sprintf("k%d", i))
-		if _, err := c.Set(key, []byte("v")); err != nil {
+		if _, err := c.Set(key, []byte("v"), 0); err != nil {
 			t.Fatalf("Set: %v", err)
 		}
 	}
@@ -561,7 +561,7 @@ func TestCompressedFlagVisibleToGet(t *testing.T) {
 	c := ss.CacheFor([]byte("k"))
 
 	plain := bytes.Repeat([]byte("a"), 4096)
-	if _, err := c.Set([]byte("k"), plain); err != nil {
+	if _, err := c.Set([]byte("k"), plain, 0); err != nil {
 		t.Fatalf("Set: %v", err)
 	}
 	got, err := c.Get([]byte("k"))

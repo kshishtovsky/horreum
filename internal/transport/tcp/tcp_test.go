@@ -15,7 +15,7 @@ type mockCache struct {
 	store map[string][]byte
 }
 
-func (m *mockCache) Set(key, value []byte) ([]byte, error) {
+func (m *mockCache) Set(key, value []byte, ttlSeconds uint32) ([]byte, error) {
 	m.store[string(key)] = append([]byte(nil), value...)
 	return value, nil
 }
@@ -33,13 +33,17 @@ func (m *mockCache) Delete(key []byte) error {
 	return nil
 }
 
-func (m *mockCache) Close() error { return nil }
+func (m *mockCache) DeleteExpired(limit int) error         { return nil }
+func (m *mockCache) CAS(k, ev, nv []byte) ([]byte, bool, error) { return nil, true, nil }
+func (m *mockCache) Incr(k []byte, d int64) (int64, error) { return d, nil }
+func (m *mockCache) Close() error                          { return nil }
 
 type mockRouter struct {
 	cache *mockCache
 }
 
 func (m *mockRouter) CacheFor(key []byte) api.CacheService { return m.cache }
+func (m *mockRouter) CacheIndexFor(key []byte) int         { return 0 }
 func (m *mockRouter) ShardCount() int                      { return 1 }
 
 func TestTCPTransport(t *testing.T) {
@@ -166,7 +170,7 @@ func TestHandleFrameUnknownOp(t *testing.T) {
 	mr := &mockRouter{cache: mc}
 	var buf []byte
 	fr := &proto.Frame{Op: 99, Key: []byte("test")}
-	if handleFrame(mr, fr, &buf, noopRecorder{}) {
+	if handleFrame(mr, fr, &buf, noopRecorder{}, 0) {
 		t.Error("expected handleFrame to return false for unknown Op")
 	}
 }
@@ -175,15 +179,22 @@ type errorCache struct {
 	mockCache
 }
 
-func (e *errorCache) Set(key, value []byte) ([]byte, error) {
+func (e *errorCache) Set(key, value []byte, ttlSeconds uint32) ([]byte, error) {
 	return nil, errors.New("set error")
 }
+func (e *errorCache) Get(key []byte) ([]byte, error)        { return nil, errors.New("get error") }
+func (e *errorCache) Delete(key []byte) error               { return errors.New("delete error") }
+func (e *errorCache) DeleteExpired(limit int) error         { return nil }
+func (e *errorCache) CAS(k, ev, nv []byte) ([]byte, bool, error) { return nil, false, errors.New("cas error") }
+func (e *errorCache) Incr(k []byte, d int64) (int64, error) { return 0, errors.New("incr error") }
+func (e *errorCache) Close() error                          { return nil }
 
 type errorRouter struct {
 	cache api.CacheService
 }
 
 func (e *errorRouter) CacheFor(key []byte) api.CacheService { return e.cache }
+func (e *errorRouter) CacheIndexFor(key []byte) int         { return 0 }
 func (e *errorRouter) ShardCount() int                      { return 1 }
 
 func TestHandleFrameSetError(t *testing.T) {
@@ -191,7 +202,141 @@ func TestHandleFrameSetError(t *testing.T) {
 	er := &errorRouter{cache: ec}
 	var buf []byte
 	fr := &proto.Frame{Op: proto.OpSet, Key: []byte("test"), Value: []byte("val")}
-	if !handleFrame(er, fr, &buf, noopRecorder{}) {
+	if !handleFrame(er, fr, &buf, noopRecorder{}, 0) {
 		t.Error("expected handleFrame to return true on handled set error")
+	}
+}
+
+
+func (m *mockCache) Scan(prefix []byte, cursor uint64, count int) ([][]byte, uint64, error) {
+	return nil, 0, nil
+}
+func (m *mockCache) DelPrefix(prefix []byte) (uint64, error) {
+	return 0, nil
+}
+
+
+func (m *mockRouter) Scan(prefix []byte, cursor uint64, count int) ([][]byte, uint64, error) {
+	return nil, 0, nil
+}
+func (m *mockRouter) DelPrefix(prefix []byte) (uint64, error) {
+	return 0, nil
+}
+
+
+func (e *errorCache) Scan(prefix []byte, cursor uint64, count int) ([][]byte, uint64, error) { return nil, 0, nil }
+func (e *errorCache) DelPrefix(prefix []byte) (uint64, error) { return 0, nil }
+func (e *errorRouter) Scan(prefix []byte, cursor uint64, count int) ([][]byte, uint64, error) { return nil, 0, nil }
+func (e *errorRouter) DelPrefix(prefix []byte) (uint64, error) { return 0, nil }
+
+
+func (m *mockCache) HSet(key, field, value []byte) (bool, error) { return false, nil }
+func (m *mockCache) HGet(key, field []byte) ([]byte, error) { return nil, nil }
+func (m *mockCache) HDel(key, field []byte) (bool, error) { return false, nil }
+func (m *mockCache) HGetAll(key []byte) ([][]byte, [][]byte, error) { return nil, nil, nil }
+func (m *mockCache) LPush(key, elem []byte) (uint32, error) { return 0, nil }
+func (m *mockCache) LPop(key []byte) ([]byte, error) { return nil, nil }
+func (m *mockCache) RPush(key, elem []byte) (uint32, error) { return 0, nil }
+func (m *mockCache) RPop(key []byte) ([]byte, error) { return nil, nil }
+func (m *mockCache) LLen(key []byte) (uint32, error) { return 0, nil }
+func (m *mockCache) SAdd(key, member []byte) (bool, error) { return false, nil }
+func (m *mockCache) SRem(key, member []byte) (bool, error) { return false, nil }
+func (m *mockCache) SIsMember(key, member []byte) (bool, error) { return false, nil }
+func (m *mockCache) SMembers(key []byte) ([][]byte, error) { return nil, nil }
+
+
+func (e *errorCache) HSet(key, field, value []byte) (bool, error) { return false, errors.New("err") }
+func (e *errorCache) HGet(key, field []byte) ([]byte, error) { return nil, errors.New("err") }
+func (e *errorCache) HDel(key, field []byte) (bool, error) { return false, errors.New("err") }
+func (e *errorCache) HGetAll(key []byte) ([][]byte, [][]byte, error) { return nil, nil, errors.New("err") }
+func (e *errorCache) LPush(key, elem []byte) (uint32, error) { return 0, errors.New("err") }
+func (e *errorCache) LPop(key []byte) ([]byte, error) { return nil, errors.New("err") }
+func (e *errorCache) RPush(key, elem []byte) (uint32, error) { return 0, errors.New("err") }
+func (e *errorCache) RPop(key []byte) ([]byte, error) { return nil, errors.New("err") }
+func (e *errorCache) LLen(key []byte) (uint32, error) { return 0, errors.New("err") }
+func (e *errorCache) SAdd(key, member []byte) (bool, error) { return false, errors.New("err") }
+func (e *errorCache) SRem(key, member []byte) (bool, error) { return false, errors.New("err") }
+func (e *errorCache) SIsMember(key, member []byte) (bool, error) { return false, errors.New("err") }
+func (e *errorCache) SMembers(key []byte) ([][]byte, error) { return nil, errors.New("err") }
+
+func TestHandleFrameAllOps(t *testing.T) {
+	mc := &mockCache{store: make(map[string][]byte)}
+	mr := &mockRouter{cache: mc}
+	var buf []byte
+
+	ops := []struct {
+		op  proto.OpCode
+		val []byte
+	}{
+		{proto.OpSet, []byte("val")},
+		{proto.OpSetEx, append([]byte{0, 0, 0, 10}, []byte("val")...)},
+		{proto.OpGet, nil},
+		{proto.OpDel, nil},
+		{proto.OpCAS, append([]byte{0, 0, 0, 3}, []byte("valval")...)},
+		{proto.OpIncr, []byte{1, 0, 0, 0, 0, 0, 0, 0}},
+		{proto.OpScan, []byte{0, 0, 0, 0, 0, 0, 0, 0, 10, 0, 0, 0}},
+		{proto.OpDelPrefix, nil},
+		{proto.OpHSet, append([]byte{4, 0}, []byte("nameAlice")...)},
+		{proto.OpHGet, []byte("name")},
+		{proto.OpHDel, []byte("name")},
+		{proto.OpHGetAll, nil},
+		{proto.OpLPush, []byte("elem")},
+		{proto.OpLPop, nil},
+		{proto.OpRPush, []byte("elem")},
+		{proto.OpRPop, nil},
+		{proto.OpLLen, nil},
+		{proto.OpSAdd, []byte("member")},
+		{proto.OpSRem, []byte("member")},
+		{proto.OpSIsMember, []byte("member")},
+		{proto.OpSMembers, nil},
+	}
+
+	for _, o := range ops {
+		buf = buf[:0]
+		fr := &proto.Frame{Op: o.op, Key: []byte("k"), Value: o.val}
+		if !handleFrame(mr, fr, &buf, noopRecorder{}, 0) {
+			t.Errorf("expected handleFrame to return true for op %v", o.op)
+		}
+	}
+}
+
+func TestHandleFrameAllOpsErrors(t *testing.T) {
+	ec := &errorCache{mockCache: mockCache{store: make(map[string][]byte)}}
+	er := &errorRouter{cache: ec}
+	var buf []byte
+
+	ops := []struct {
+		op  proto.OpCode
+		val []byte
+	}{
+		{proto.OpSet, []byte("val")},
+		{proto.OpSetEx, append([]byte{0, 0, 0, 10}, []byte("val")...)},
+		{proto.OpGet, nil},
+		{proto.OpDel, nil},
+		{proto.OpCAS, append([]byte{0, 0, 0, 3}, []byte("valval")...)},
+		{proto.OpIncr, []byte{1, 0, 0, 0, 0, 0, 0, 0}},
+		{proto.OpScan, []byte{0, 0, 0, 0, 0, 0, 0, 0, 10, 0, 0, 0}},
+		{proto.OpDelPrefix, nil},
+		{proto.OpHSet, append([]byte{4, 0}, []byte("nameAlice")...)},
+		{proto.OpHGet, []byte("name")},
+		{proto.OpHDel, []byte("name")},
+		{proto.OpHGetAll, nil},
+		{proto.OpLPush, []byte("elem")},
+		{proto.OpLPop, nil},
+		{proto.OpRPush, []byte("elem")},
+		{proto.OpRPop, nil},
+		{proto.OpLLen, nil},
+		{proto.OpSAdd, []byte("member")},
+		{proto.OpSRem, []byte("member")},
+		{proto.OpSIsMember, []byte("member")},
+		{proto.OpSMembers, nil},
+	}
+
+	for _, o := range ops {
+		buf = buf[:0]
+		fr := &proto.Frame{Op: o.op, Key: []byte("k"), Value: o.val}
+		if !handleFrame(er, fr, &buf, noopRecorder{}, 0) {
+			t.Errorf("expected handleFrame to return true for error op %v", o.op)
+		}
 	}
 }

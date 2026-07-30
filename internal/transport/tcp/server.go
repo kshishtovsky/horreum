@@ -37,6 +37,10 @@ type noopRecorder struct{}
 func (noopRecorder) ObserveSet(string, time.Duration) {}
 func (noopRecorder) ObserveGet(string, time.Duration) {}
 func (noopRecorder) ObserveDel(string, time.Duration) {}
+func (noopRecorder) ObserveCAS(string, time.Duration) {}
+func (noopRecorder) ObserveIncr(string, time.Duration) {}
+func (noopRecorder) ObserveScan(string, time.Duration) {}
+func (noopRecorder) ObserveDelPrefix(string, time.Duration) {}
 
 // Transport is the TCP-specific transport.
 type Transport struct {
@@ -77,6 +81,9 @@ func NewTransport(addr string, router api.ShardRouter, recorder api.Recorder) (*
 		workers:  transport.NewWorkerPool(numShards, 4096),
 	}
 	t.workers.Start()
+	if ss, ok := router.(*transport.ShardSet); ok {
+		ss.StartGCLoop(t.workers, 100)
+	}
 	return t, nil
 }
 
@@ -94,7 +101,7 @@ func (t *Transport) ListenAndServe() error {
 			return err
 		}
 		idx := shardIndexFor(conn, t.workers.ShardCount())
-		t.workers.Submit(transport.Job{Conn: conn, Handle: t.handle}, idx)
+		go t.serve(conn, idx)
 	}
 }
 
@@ -158,20 +165,9 @@ const (
 	idleTimeout        = 2 * time.Minute
 )
 
-// handle is the per-job handler invoked by the shard worker.  It
-// invokes serve(j.Conn) so the per-connection logic stays in serve.
-func (t *Transport) handle(j transport.Job) {
-	t.serve(j.Conn)
-}
-
-// serve handles one connection from accept to EOF.  All frames on
-// the connection are processed serially on the worker goroutine that
-// dispatched them.  The cache calls in handleFrame touch the shard
-// pinned to this worker (via ShardSet.ShardRouter.CacheFor which
-// hashes the key — the result MUST equal the worker's shard index,
-// which is the case when the client's keys hash to the same shard as
-// the connection's remote IP).
-func (t *Transport) serve(c net.Conn) {
+// serve handles one connection from accept to EOF. Network IO runs here,
+// while cache operations are submitted to the shard worker for serial execution.
+func (t *Transport) serve(c net.Conn, workerIdx int) {
 	remoteAddr := c.RemoteAddr().String()
 	slog.Debug("client connected", "remote_addr", remoteAddr)
 	defer func() {
@@ -209,60 +205,47 @@ func (t *Transport) serve(c net.Conn) {
 			}
 			return
 		}
-		for i := range frames {
-			if !handleFrame(t.router, &frames[i], &writeBuf, t.recorder) {
+		
+		if len(frames) > 0 {
+			done := make(chan struct{})
+			var processErr bool
+
+			submitted := t.workers.Submit(transport.Job{
+				Handle: func(canceled bool) {
+					if canceled {
+						processErr = true
+					} else {
+						for i := range frames {
+							if !handleFrame(t.router, &frames[i], &writeBuf, t.recorder, workerIdx) {
+								processErr = true
+								break
+							}
+						}
+					}
+					close(done)
+				},
+			}, workerIdx)
+
+			if !submitted {
 				return
 			}
-		}
-		if len(writeBuf) > 0 {
-			if _, err := c.Write(writeBuf); err != nil {
+			<-done
+
+			if processErr {
 				return
 			}
-			writeBuf = writeBuf[:0]
+
+			if len(writeBuf) > 0 {
+				if _, err := c.Write(writeBuf); err != nil {
+					return
+				}
+				writeBuf = writeBuf[:0]
+			}
 		}
 		_ = c.SetDeadline(time.Now().Add(idleTimeout))
 	}
 }
 
-// handleFrame processes one frame on the shard that owns key and
-// appends the response to *writeBuf.
-//
-// IMPORTANT: this function MUST only be called from the shard worker
-// whose index matches the shard router's CacheFor(key) result.  The
-// shard worker enforces serialisation, so the cache's single-threaded
-// invariant holds.  See Transport.ListenAndServe for the dispatch
-// logic.
-func handleFrame(router api.ShardRouter, fr *proto.Frame, writeBuf *[]byte, rec api.Recorder) bool {
-	cache := router.CacheFor(fr.Key)
-	status := "ok"
-	t0 := time.Now()
-	switch fr.Op {
-	case proto.OpGet:
-		val, err := cache.Get(fr.Key)
-		if err != nil {
-			status = "err"
-			*writeBuf = proto.EncodeResponse(*writeBuf, proto.OpGet, 1, fr.Key, nil)
-			rec.ObserveGet(status, time.Since(t0))
-			return true
-		}
-		*writeBuf = proto.EncodeResponse(*writeBuf, proto.OpGet, 0, fr.Key, val)
-		rec.ObserveGet(status, time.Since(t0))
-		return true
-	case proto.OpSet:
-		if _, err := cache.Set(fr.Key, fr.Value); err != nil {
-			status = "err"
-			*writeBuf = proto.EncodeResponse(*writeBuf, proto.OpSet, 1, fr.Key, nil)
-			rec.ObserveSet(status, time.Since(t0))
-			return true
-		}
-		*writeBuf = proto.EncodeResponse(*writeBuf, proto.OpSet, 0, fr.Key, nil)
-		rec.ObserveSet(status, time.Since(t0))
-		return true
-	case proto.OpDel:
-		_ = cache.Delete(fr.Key)
-		*writeBuf = proto.EncodeResponse(*writeBuf, proto.OpDel, 0, fr.Key, nil)
-		rec.ObserveDel(status, time.Since(t0))
-		return true
-	}
-	return false
+func handleFrame(router api.ShardRouter, fr *proto.Frame, writeBuf *[]byte, rec api.Recorder, workerIdx int) bool {
+	return transport.HandleFrame(router, fr, writeBuf, rec, workerIdx)
 }

@@ -10,8 +10,8 @@ import (
 func TestPutGet(t *testing.T) {
 	h := New(16)
 	hd := arena.Handle{Offset: 100, Size: 50, Region: 0}
-	h.Put([]byte("key1"), hd)
-	got, ok := h.Get([]byte("key1"))
+	h.Put([]byte("key1"), hd, 0)
+	got, ok := h.Get([]byte("key1"), 0)
 	if !ok {
 		t.Fatal("Get returned false")
 	}
@@ -22,7 +22,7 @@ func TestPutGet(t *testing.T) {
 
 func TestGetMissing(t *testing.T) {
 	h := New(16)
-	_, ok := h.Get([]byte("missing"))
+	_, ok := h.Get([]byte("missing"), 0)
 	if ok {
 		t.Error("Get(missing) returned true")
 	}
@@ -32,12 +32,12 @@ func TestPutUpdate(t *testing.T) {
 	h := New(16)
 	hd1 := arena.Handle{Offset: 100, Size: 50, Region: 0}
 	hd2 := arena.Handle{Offset: 200, Size: 60, Region: 0}
-	h.Put([]byte("key1"), hd1)
-	evicted := h.Put([]byte("key1"), hd2)
+	h.Put([]byte("key1"), hd1, 0)
+	evicted := h.Put([]byte("key1"), hd2, 0)
 	if !evicted {
 		t.Error("expected evicted=true on update")
 	}
-	got, _ := h.Get([]byte("key1"))
+	got, _ := h.Get([]byte("key1"), 0)
 	if got != hd2 {
 		t.Errorf("Get = %v, want %v", got, hd2)
 	}
@@ -46,7 +46,7 @@ func TestPutUpdate(t *testing.T) {
 func TestDelete(t *testing.T) {
 	h := New(16)
 	hd := arena.Handle{Offset: 100, Size: 50, Region: 0}
-	h.Put([]byte("key1"), hd)
+	h.Put([]byte("key1"), hd, 0)
 	deleted, ok := h.Delete([]byte("key1"))
 	if !ok {
 		t.Fatal("Delete returned false")
@@ -54,7 +54,7 @@ func TestDelete(t *testing.T) {
 	if deleted != hd {
 		t.Errorf("Delete = %v, want %v", deleted, hd)
 	}
-	_, ok = h.Get([]byte("key1"))
+	_, ok = h.Get([]byte("key1"), 0)
 	if ok {
 		t.Error("Get after Delete returned true")
 	}
@@ -73,11 +73,11 @@ func TestGrow(t *testing.T) {
 	for i := 0; i < 100; i++ {
 		key := []byte(fmt.Sprintf("key-%d", i))
 		hd := arena.Handle{Offset: uint32(i * 10), Size: 10, Region: 0}
-		h.Put(key, hd)
+		h.Put(key, hd, 0)
 	}
 	for i := 0; i < 100; i++ {
 		key := []byte(fmt.Sprintf("key-%d", i))
-		got, ok := h.Get(key)
+		got, ok := h.Get(key, 0)
 		if !ok {
 			t.Errorf("Get(key-%d) = false", i)
 		}
@@ -92,9 +92,9 @@ func TestOverwrite(t *testing.T) {
 	h := New(16)
 	for i := 0; i < 50; i++ {
 		hd := arena.Handle{Offset: uint32(i), Size: 1, Region: 0}
-		h.Put([]byte("same-key"), hd)
+		h.Put([]byte("same-key"), hd, 0)
 	}
-	got, ok := h.Get([]byte("same-key"))
+	got, ok := h.Get([]byte("same-key"), 0)
 	if !ok {
 		t.Fatal("Get returned false")
 	}
@@ -119,7 +119,7 @@ func TestSnapshotAll(t *testing.T) {
 	for i := 0; i < n; i++ {
 		key := []byte(fmt.Sprintf("k%d", i))
 		hd := arena.Handle{Offset: uint32(i), Size: 8, Region: 0}
-		h.Put(key, hd)
+		h.Put(key, hd, 0)
 	}
 	snap := h.Snapshot()
 	if len(snap) != n {
@@ -143,7 +143,7 @@ func TestSnapshotAfterDelete(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		key := []byte(fmt.Sprintf("k%d", i))
 		hd := arena.Handle{Offset: uint32(i), Size: 1, Region: 0}
-		h.Put(key, hd)
+		h.Put(key, hd, 0)
 	}
 	h.Delete([]byte("k3"))
 	h.Delete([]byte("k7"))
@@ -162,13 +162,13 @@ func TestSnapshotAfterDelete(t *testing.T) {
 // TestAddInsert verifies Add inserts without grow and returns true.
 func TestAddInsert(t *testing.T) {
 	h := NewForCount(32)
-	if !h.Add([]byte("a"), arena.Handle{Offset: 10, Size: 5, Region: 0}) {
+	if !h.Add([]byte("a"), arena.Handle{Offset: 10, Size: 5, Region: 0}, 0) {
 		t.Fatal("Add returned false")
 	}
 	if h.Count() != 1 {
 		t.Errorf("Count after Add = %d, want 1", h.Count())
 	}
-	got, ok := h.Get([]byte("a"))
+	got, ok := h.Get([]byte("a"), 0)
 	if !ok {
 		t.Fatal("Get returned false")
 	}
@@ -180,10 +180,10 @@ func TestAddInsert(t *testing.T) {
 // TestAddDuplicate verifies Add returns false on a duplicate key.
 func TestAddDuplicate(t *testing.T) {
 	h := NewForCount(64)
-	if !h.Add([]byte("dup-key"), arena.Handle{Offset: 1, Size: 5, Region: 0}) {
+	if !h.Add([]byte("dup-key"), arena.Handle{Offset: 1, Size: 5, Region: 0}, 0) {
 		t.Fatal("first Add returned false")
 	}
-	if h.Add([]byte("dup-key"), arena.Handle{}) {
+	if h.Add([]byte("dup-key"), arena.Handle{}, 0) {
 		t.Error("second Add of duplicate returned true; want false")
 	}
 	if h.Count() != 1 {
@@ -200,7 +200,7 @@ func TestSnapshotRoundTrip(t *testing.T) {
 	for i := 0; i < n; i++ {
 		key := []byte(fmt.Sprintf("rk%d", i))
 		hd := arena.Handle{Offset: uint32(i * 32), Size: 16, Region: 0}
-		src.Put(key, hd)
+		src.Put(key, hd, 0)
 		want[string(key)] = hd
 	}
 
@@ -211,7 +211,7 @@ func TestSnapshotRoundTrip(t *testing.T) {
 
 	dst := NewForCount(n)
 	for _, se := range snap {
-		if !dst.Add(se.Key, se.Handle) {
+		if !dst.Add(se.Key, se.Handle, se.ExpiresAt) {
 			t.Errorf("Add(%q) returned false", string(se.Key))
 		}
 	}
@@ -220,7 +220,7 @@ func TestSnapshotRoundTrip(t *testing.T) {
 		t.Errorf("dst.Count = %d, want %d", dst.Count(), n)
 	}
 	for k, hd := range want {
-		got, ok := dst.Get([]byte(k))
+		got, ok := dst.Get([]byte(k), 0)
 		if !ok {
 			t.Errorf("dst.Get(%q) = false", k)
 			continue
@@ -257,12 +257,12 @@ func BenchmarkIndexGet(b *testing.B) {
 	for i := 0; i < 1000; i++ {
 		keys[i] = []byte(fmt.Sprintf("key-%d", i))
 		hd := arena.Handle{Offset: uint32(i * 10), Size: 10, Region: 0}
-		h.Put(keys[i], hd)
+		h.Put(keys[i], hd, 0)
 	}
 	b.ResetTimer()
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
-		h.Get(keys[i%1000])
+		h.Get(keys[i%1000], 0)
 	}
 }
 
@@ -273,6 +273,6 @@ func BenchmarkIndexPut(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		key := []byte(fmt.Sprintf("key-%d", i))
 		hd := arena.Handle{Offset: uint32(i), Size: 10, Region: 0}
-		h.Put(key, hd)
+		h.Put(key, hd, 0)
 	}
 }

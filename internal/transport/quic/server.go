@@ -34,6 +34,10 @@ type noopRecorder struct{}
 func (noopRecorder) ObserveSet(string, time.Duration) {}
 func (noopRecorder) ObserveGet(string, time.Duration) {}
 func (noopRecorder) ObserveDel(string, time.Duration) {}
+func (noopRecorder) ObserveCAS(string, time.Duration) {}
+func (noopRecorder) ObserveIncr(string, time.Duration) {}
+func (noopRecorder) ObserveScan(string, time.Duration) {}
+func (noopRecorder) ObserveDelPrefix(string, time.Duration) {}
 
 // Transport is the QUIC-specific transport.
 type Transport struct {
@@ -94,6 +98,9 @@ func NewTransport(addr string, router api.ShardRouter, cert *tls.Certificate, re
 		workers:  transport.NewWorkerPool(numShards, 4096),
 	}
 	t.workers.Start()
+	if ss, ok := router.(*transport.ShardSet); ok {
+		ss.StartGCLoop(t.workers, 100)
+	}
 	return t, nil
 }
 
@@ -138,13 +145,13 @@ func (t *Transport) serveConn(conn *quic.Conn) {
 		// same QUIC connection may touch different shards (their
 		// keys may differ), but ordering per shard is preserved.
 		idx := shardIndexForStream(stream, t.workers.ShardCount())
-		t.workers.Submit(transport.Job{Conn: sc, Handle: t.serveStream}, idx)
+		go t.serveStream(sc, idx)
 	}
 }
 
-// serveStream processes one request/response on one stream.
-func (t *Transport) serveStream(j transport.Job) {
-	c := j.Conn
+// serveStream processes one request/response on one stream. Network IO runs here,
+// while cache operations are submitted to the shard worker for serial execution.
+func (t *Transport) serveStream(c net.Conn, workerIdx int) {
 	remoteAddr := c.RemoteAddr().String()
 	defer c.Close()
 	_ = c.SetDeadline(time.Now().Add(idleTimeoutQUIC))
@@ -178,16 +185,41 @@ func (t *Transport) serveStream(j transport.Job) {
 			}
 			return
 		}
-		for i := range frames {
-			if !handleFrameQUIC(t.router, &frames[i], &writeBuf, t.recorder) {
+		if len(frames) > 0 {
+			done := make(chan struct{})
+			var processErr bool
+
+			submitted := t.workers.Submit(transport.Job{
+				Handle: func(canceled bool) {
+					if canceled {
+						processErr = true
+					} else {
+						for i := range frames {
+							if !handleFrameQUIC(t.router, &frames[i], &writeBuf, t.recorder, workerIdx) {
+								processErr = true
+								break
+							}
+						}
+					}
+					close(done)
+				},
+			}, workerIdx)
+
+			if !submitted {
 				return
 			}
-		}
-		if len(writeBuf) > 0 {
-			if _, err := c.Write(writeBuf); err != nil {
+			<-done
+
+			if processErr {
 				return
 			}
-			writeBuf = writeBuf[:0]
+
+			if len(writeBuf) > 0 {
+				if _, err := c.Write(writeBuf); err != nil {
+					return
+				}
+				writeBuf = writeBuf[:0]
+			}
 		}
 		_ = c.SetDeadline(time.Now().Add(idleTimeoutQUIC))
 	}
@@ -230,40 +262,10 @@ const (
 )
 
 // handleFrameQUIC is the per-frame handler.
-func handleFrameQUIC(router api.ShardRouter, fr *proto.Frame, writeBuf *[]byte, rec api.Recorder) bool {
-	cache := router.CacheFor(fr.Key)
-	status := "ok"
-	t0 := time.Now()
-	switch fr.Op {
-	case proto.OpGet:
-		val, err := cache.Get(fr.Key)
-		if err != nil {
-			status = "err"
-			*writeBuf = proto.EncodeResponse(*writeBuf, proto.OpGet, 1, fr.Key, nil)
-			rec.ObserveGet(status, time.Since(t0))
-			return true
-		}
-		*writeBuf = proto.EncodeResponse(*writeBuf, proto.OpGet, 0, fr.Key, val)
-		rec.ObserveGet(status, time.Since(t0))
-		return true
-	case proto.OpSet:
-		if _, err := cache.Set(fr.Key, fr.Value); err != nil {
-			status = "err"
-			*writeBuf = proto.EncodeResponse(*writeBuf, proto.OpSet, 1, fr.Key, nil)
-			rec.ObserveSet(status, time.Since(t0))
-			return true
-		}
-		*writeBuf = proto.EncodeResponse(*writeBuf, proto.OpSet, 0, fr.Key, nil)
-		rec.ObserveSet(status, time.Since(t0))
-		return true
-	case proto.OpDel:
-		_ = cache.Delete(fr.Key)
-		*writeBuf = proto.EncodeResponse(*writeBuf, proto.OpDel, 0, fr.Key, nil)
-		rec.ObserveDel(status, time.Since(t0))
-		return true
-	}
-	return false
+func handleFrameQUIC(router api.ShardRouter, fr *proto.Frame, writeBuf *[]byte, rec api.Recorder, workerIdx int) bool {
+	return transport.HandleFrame(router, fr, writeBuf, rec, workerIdx)
 }
+
 
 // ─────────── streamConn: net.Conn adapter for *quic.Stream ───────────
 

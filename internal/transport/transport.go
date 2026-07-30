@@ -6,14 +6,17 @@
 package transport
 
 import (
+	"encoding/binary"
 	"errors"
 	"hash/fnv"
 	"net"
 	"runtime"
 	"sync/atomic"
+	"time"
 
 	"github.com/horreum/horreum/internal/arena"
 	"github.com/horreum/horreum/internal/compress"
+	"github.com/horreum/horreum/internal/ds"
 	"github.com/horreum/horreum/internal/encrypt"
 	"github.com/horreum/horreum/internal/eviction"
 	"github.com/horreum/horreum/internal/transport/api"
@@ -100,7 +103,7 @@ func newShardCacheFromArena(mgr *arena.Manager, evictCapacity uint64, comp compr
 // If compression is enabled and the value exceeds the minimum
 // threshold, the value is compressed before storing in the arena.
 // The CompressedFlag meta bit is set so Get knows to decompress.
-func (s *shardCache) Set(key, value []byte) ([]byte, error) {
+func (s *shardCache) Set(key, value []byte, ttlSeconds uint32) ([]byte, error) {
 	if s == nil {
 		return nil, errBackendNil
 	}
@@ -143,7 +146,12 @@ func (s *shardCache) Set(key, value []byte) ([]byte, error) {
 	for _, e := range s.ev.Add(key, h) {
 		_ = s.mgr.Free(e)
 	}
-	old, replaced := s.idx.put(key, h)
+	
+	expiresAt := uint32(0)
+	if ttlSeconds > 0 {
+		expiresAt = uint32(time.Now().Unix()) + ttlSeconds
+	}
+	old, replaced := s.idx.put(key, h, expiresAt)
 	if replaced {
 		_ = s.mgr.Free(old)
 	}
@@ -166,7 +174,8 @@ func (s *shardCache) Get(key []byte) ([]byte, error) {
 	if s == nil {
 		return nil, errBackendNil
 	}
-	h, ok := s.idx.get(key)
+	now := uint32(time.Now().Unix())
+	h, ok, _ := s.idx.get(key, now)
 	if !ok {
 		return nil, ErrNotFound
 	}
@@ -199,6 +208,171 @@ func (s *shardCache) Get(key []byte) ([]byte, error) {
 	return raw, nil
 }
 
+// CAS implements CacheService.
+func (s *shardCache) CAS(key, expectedValue, newValue []byte) ([]byte, bool, error) {
+	if s == nil {
+		return nil, false, errBackendNil
+	}
+	now := uint32(time.Now().Unix())
+	h, ok, expiresAt := s.idx.get(key, now)
+	if !ok {
+		return nil, false, nil
+	}
+	s.ev.Touch(h)
+	raw, err := s.mgr.View(h)
+	if err != nil {
+		return nil, false, err
+	}
+	// For simplicity, we compare raw byte values directly. If they were compressed or encrypted,
+	// we compare the uncompressed/unencrypted expectedValue against the decrypted/decompressed raw.
+	currentValue := raw
+	isEncrypted := s.mgr.GetMeta(h)&arena.EncryptedFlag != 0
+	isCompressed := s.mgr.GetMeta(h)&arena.CompressedFlag != 0
+	if isEncrypted {
+		if s.cipher == nil || s.cipher.Name() == "none" {
+			return nil, false, errors.New("transport: data is encrypted but no cipher key is configured")
+		}
+		dec, err := s.cipher.Decrypt(nil, currentValue)
+		if err != nil {
+			return nil, false, err
+		}
+		currentValue = dec
+	}
+	if isCompressed {
+		dec, err := s.comp.Decompress(currentValue)
+		if err != nil {
+			return nil, false, err
+		}
+		currentValue = dec
+	}
+
+	if !bytesEq(currentValue, expectedValue) {
+		// Mismatch, return current value
+		out := make([]byte, len(currentValue))
+		copy(out, currentValue)
+		return out, false, nil
+	}
+
+	// Prepare new value
+	if uint64(len(newValue)) > arena.MaxObjectSize {
+		return nil, false, ErrTooLarge
+	}
+	valToWrite := newValue
+	compressed := false
+	if s.comp != nil && s.comp.Name() != "none" {
+		if cBuf, ok := s.comp.Compress(valToWrite); ok {
+			valToWrite = cBuf
+			compressed = true
+			defer s.comp.PutBuf(cBuf)
+		}
+	}
+	encrypted := false
+	if s.cipher != nil && s.cipher.Name() != "none" {
+		encBuf, err := s.cipher.Encrypt(nil, valToWrite)
+		if err != nil {
+			return nil, false, err
+		}
+		valToWrite = encBuf
+		encrypted = true
+	}
+	if uint64(len(valToWrite)) > arena.MaxObjectSize {
+		return nil, false, ErrTooLarge
+	}
+	newH, err := s.mgr.Put(valToWrite)
+	if err != nil {
+		return nil, false, err
+	}
+	if compressed {
+		s.mgr.OrMetaBits(newH, arena.CompressedFlag)
+	}
+	if encrypted {
+		s.mgr.OrMetaBits(newH, arena.EncryptedFlag)
+	}
+	
+	for _, e := range s.ev.Add(key, newH) {
+		_ = s.mgr.Free(e)
+	}
+	old, replaced := s.idx.put(key, newH, expiresAt)
+	if replaced {
+		_ = s.mgr.Free(old)
+	}
+	return nil, true, nil
+}
+
+// Incr implements CacheService.
+func (s *shardCache) Incr(key []byte, delta int64) (int64, error) {
+	if s == nil {
+		return 0, errBackendNil
+	}
+	now := uint32(time.Now().Unix())
+	h, ok, expiresAt := s.idx.get(key, now)
+	var current int64 = 0
+	if ok {
+		s.ev.Touch(h)
+		raw, err := s.mgr.View(h)
+		if err == nil {
+			if s.mgr.GetMeta(h)&arena.EncryptedFlag != 0 && s.cipher != nil && s.cipher.Name() != "none" {
+				if dec, err := s.cipher.Decrypt(nil, raw); err == nil {
+					raw = dec
+				}
+			}
+			if s.mgr.GetMeta(h)&arena.CompressedFlag != 0 {
+				if dec, err := s.comp.Decompress(raw); err == nil {
+					raw = dec
+				}
+			}
+			if len(raw) == 8 {
+				current = int64(binary.LittleEndian.Uint64(raw))
+			}
+		}
+	}
+
+	current += delta
+	var newValue [8]byte
+	binary.LittleEndian.PutUint64(newValue[:], uint64(current))
+
+	valToWrite := newValue[:]
+	compressed := false
+	if s.comp != nil && s.comp.Name() != "none" {
+		if cBuf, ok := s.comp.Compress(valToWrite); ok {
+			valToWrite = cBuf
+			compressed = true
+			defer s.comp.PutBuf(cBuf)
+		}
+	}
+	encrypted := false
+	if s.cipher != nil && s.cipher.Name() != "none" {
+		encBuf, err := s.cipher.Encrypt(nil, valToWrite)
+		if err != nil {
+			return 0, err
+		}
+		valToWrite = encBuf
+		encrypted = true
+	}
+	if uint64(len(valToWrite)) > arena.MaxObjectSize {
+		return 0, ErrTooLarge
+	}
+	newH, err := s.mgr.Put(valToWrite)
+	if err != nil {
+		return 0, err
+	}
+	if compressed {
+		s.mgr.OrMetaBits(newH, arena.CompressedFlag)
+	}
+	if encrypted {
+		s.mgr.OrMetaBits(newH, arena.EncryptedFlag)
+	}
+	
+	for _, e := range s.ev.Add(key, newH) {
+		_ = s.mgr.Free(e)
+	}
+	old, replaced := s.idx.put(key, newH, expiresAt)
+	if replaced {
+		_ = s.mgr.Free(old)
+	}
+	return current, nil
+}
+
 // Delete implements CacheService.
 func (s *shardCache) Delete(key []byte) error {
 	if s == nil {
@@ -212,6 +386,44 @@ func (s *shardCache) Delete(key []byte) error {
 	return s.mgr.Free(h)
 }
 
+// DeleteExpired implements CacheService.
+func (s *shardCache) DeleteExpired(limit int) error {
+	if s == nil {
+		return errBackendNil
+	}
+	now := uint32(time.Now().Unix())
+	freed := s.idx.DeleteExpired(now, limit)
+	for _, h := range freed {
+		s.ev.Remove(h)
+		_ = s.mgr.Free(h)
+	}
+	return nil
+}
+
+// Scan implements CacheService.
+func (s *shardCache) Scan(prefix []byte, cursor uint64, count int) ([][]byte, uint64, error) {
+	if s == nil {
+		return nil, 0, errBackendNil
+	}
+	now := uint32(time.Now().Unix())
+	keys, nextCursor := s.idx.scanPrefix(prefix, cursor, count, now)
+	return keys, nextCursor, nil
+}
+
+// DelPrefix implements CacheService.
+func (s *shardCache) DelPrefix(prefix []byte) (uint64, error) {
+	if s == nil {
+		return 0, errBackendNil
+	}
+	now := uint32(time.Now().Unix())
+	freed, deletedKeys := s.idx.deletePrefix(prefix, now)
+	for i, h := range freed {
+		s.ev.Delete(deletedKeys[i], h)
+		_ = s.mgr.Free(h)
+	}
+	return uint64(len(freed)), nil
+}
+
 // Close releases the arena region.
 func (s *shardCache) Close() error {
 	if s == nil {
@@ -220,57 +432,285 @@ func (s *shardCache) Close() error {
 	return s.mgr.Close()
 }
 
+// HSet implements CacheService.
+func (s *shardCache) HSet(key, field, value []byte) (bool, error) {
+	if s == nil {
+		return false, errBackendNil
+	}
+	raw, _ := s.Get(key)
+	newRaw, updated := ds.HSet(raw, field, value)
+	_, err := s.Set(key, newRaw, 0)
+	return updated, err
+}
+
+// HGet implements CacheService.
+func (s *shardCache) HGet(key, field []byte) ([]byte, error) {
+	if s == nil {
+		return nil, errBackendNil
+	}
+	raw, err := s.Get(key)
+	if err != nil {
+		return nil, err
+	}
+	val, ok := ds.HGet(raw, field)
+	if !ok {
+		return nil, ErrNotFound
+	}
+	return val, nil
+}
+
+// HDel implements CacheService.
+func (s *shardCache) HDel(key, field []byte) (bool, error) {
+	if s == nil {
+		return false, errBackendNil
+	}
+	raw, err := s.Get(key)
+	if err != nil {
+		return false, err
+	}
+	newRaw, deleted := ds.HDel(raw, field)
+	if !deleted {
+		return false, nil
+	}
+	if len(newRaw) == 0 {
+		_ = s.Delete(key)
+		return true, nil
+	}
+	_, err = s.Set(key, newRaw, 0)
+	return true, err
+}
+
+// HGetAll implements CacheService.
+func (s *shardCache) HGetAll(key []byte) ([][]byte, [][]byte, error) {
+	if s == nil {
+		return nil, nil, errBackendNil
+	}
+	raw, err := s.Get(key)
+	if err != nil {
+		return nil, nil, err
+	}
+	fields, values := ds.HGetAll(raw)
+	return fields, values, nil
+}
+
+// LPush implements CacheService.
+func (s *shardCache) LPush(key, elem []byte) (uint32, error) {
+	if s == nil {
+		return 0, errBackendNil
+	}
+	raw, _ := s.Get(key)
+	newRaw := ds.LPush(raw, elem)
+	_, err := s.Set(key, newRaw, 0)
+	return ds.LLen(newRaw), err
+}
+
+// LPop implements CacheService.
+func (s *shardCache) LPop(key []byte) ([]byte, error) {
+	if s == nil {
+		return nil, errBackendNil
+	}
+	raw, err := s.Get(key)
+	if err != nil {
+		return nil, err
+	}
+	newRaw, popped, ok := ds.LPop(raw)
+	if !ok {
+		return nil, ErrNotFound
+	}
+	if len(newRaw) == 0 {
+		_ = s.Delete(key)
+	} else {
+		_, _ = s.Set(key, newRaw, 0)
+	}
+	return popped, nil
+}
+
+// RPush implements CacheService.
+func (s *shardCache) RPush(key, elem []byte) (uint32, error) {
+	if s == nil {
+		return 0, errBackendNil
+	}
+	raw, _ := s.Get(key)
+	newRaw := ds.RPush(raw, elem)
+	_, err := s.Set(key, newRaw, 0)
+	return ds.LLen(newRaw), err
+}
+
+// RPop implements CacheService.
+func (s *shardCache) RPop(key []byte) ([]byte, error) {
+	if s == nil {
+		return nil, errBackendNil
+	}
+	raw, err := s.Get(key)
+	if err != nil {
+		return nil, err
+	}
+	newRaw, popped, ok := ds.RPop(raw)
+	if !ok {
+		return nil, ErrNotFound
+	}
+	if len(newRaw) == 0 {
+		_ = s.Delete(key)
+	} else {
+		_, _ = s.Set(key, newRaw, 0)
+	}
+	return popped, nil
+}
+
+// LLen implements CacheService.
+func (s *shardCache) LLen(key []byte) (uint32, error) {
+	if s == nil {
+		return 0, errBackendNil
+	}
+	raw, err := s.Get(key)
+	if err != nil {
+		return 0, nil
+	}
+	return ds.LLen(raw), nil
+}
+
+// SAdd implements CacheService.
+func (s *shardCache) SAdd(key, member []byte) (bool, error) {
+	if s == nil {
+		return false, errBackendNil
+	}
+	raw, _ := s.Get(key)
+	newRaw, added := ds.SAdd(raw, member)
+	_, err := s.Set(key, newRaw, 0)
+	return added, err
+}
+
+// SRem implements CacheService.
+func (s *shardCache) SRem(key, member []byte) (bool, error) {
+	if s == nil {
+		return false, errBackendNil
+	}
+	raw, err := s.Get(key)
+	if err != nil {
+		return false, err
+	}
+	newRaw, removed := ds.SRem(raw, member)
+	if !removed {
+		return false, nil
+	}
+	if len(newRaw) == 0 {
+		_ = s.Delete(key)
+	} else {
+		_, _ = s.Set(key, newRaw, 0)
+	}
+	return true, nil
+}
+
+// SIsMember implements CacheService.
+func (s *shardCache) SIsMember(key, member []byte) (bool, error) {
+	if s == nil {
+		return false, errBackendNil
+	}
+	raw, err := s.Get(key)
+	if err != nil {
+		return false, nil
+	}
+	return ds.SIsMember(raw, member), nil
+}
+
+// SMembers implements CacheService.
+func (s *shardCache) SMembers(key []byte) ([][]byte, error) {
+	if s == nil {
+		return nil, errBackendNil
+	}
+	raw, err := s.Get(key)
+	if err != nil {
+		return nil, nil
+	}
+	return ds.SMembers(raw), nil
+}
+
 // shardIndex is a minimal key→handle hash index.  Not concurrent-safe.
 type shardIndex struct {
-	keys    [][]byte
-	handles []arena.Handle
-	count   int
-	mask    uint64
+	keys       [][]byte
+	handles    []arena.Handle
+	expiresAt  []uint32
+	count      int
+	mask       uint64
+	scanCursor uint64
 }
 
 func newShardIndex() *shardIndex {
 	const initial = 64
 	return &shardIndex{
-		keys:    make([][]byte, initial),
-		handles: make([]arena.Handle, initial),
-		mask:    initial - 1,
+		keys:      make([][]byte, initial),
+		handles:   make([]arena.Handle, initial),
+		expiresAt: make([]uint32, initial),
+		mask:      initial - 1,
 	}
 }
 
-func (s *shardIndex) put(key []byte, h arena.Handle) (arena.Handle, bool) {
+func (s *shardIndex) put(key []byte, h arena.Handle, expiresAt uint32) (arena.Handle, bool) {
 	if s.count*4 >= len(s.keys)*3 {
 		s.grow()
 	}
 	i := hashKey(key) & s.mask
 	for {
 		if s.keys[i] == nil {
-			s.keys[i] = key
+			kCopy := make([]byte, len(key))
+			copy(kCopy, key)
+			s.keys[i] = kCopy
 			s.handles[i] = h
+			s.expiresAt[i] = expiresAt
 			s.count++
 			return arena.Handle{}, false
 		}
 		if bytesEq(s.keys[i], key) {
 			old := s.handles[i]
 			s.handles[i] = h
+			s.expiresAt[i] = expiresAt
 			return old, true
 		}
 		i = (i + 1) & s.mask
 	}
 }
 
-func (s *shardIndex) get(key []byte) (arena.Handle, bool) {
+func (s *shardIndex) get(key []byte, now uint32) (arena.Handle, bool, uint32) {
 	if s.count == 0 {
-		return arena.Handle{}, false
+		return arena.Handle{}, false, 0
 	}
 	i := hashKey(key) & s.mask
 	for {
 		if s.keys[i] == nil {
-			return arena.Handle{}, false
+			return arena.Handle{}, false, 0
 		}
 		if bytesEq(s.keys[i], key) {
-			return s.handles[i], true
+			if s.expiresAt[i] != 0 && now >= s.expiresAt[i] {
+				return arena.Handle{}, false, 0
+			}
+			return s.handles[i], true, s.expiresAt[i]
 		}
 		i = (i + 1) & s.mask
+	}
+}
+
+func (s *shardIndex) deleteAt(i uint64) {
+	s.keys[i] = nil
+	s.handles[i] = arena.Handle{}
+	s.expiresAt[i] = 0
+	s.count--
+
+	gap := i
+	curr := (i + 1) & s.mask
+	for s.keys[curr] != nil {
+		desired := hashKey(s.keys[curr]) & s.mask
+		if (curr > gap && (desired <= gap || desired > curr)) ||
+			(curr < gap && (desired <= gap && desired > curr)) {
+			s.keys[gap] = s.keys[curr]
+			s.handles[gap] = s.handles[curr]
+			s.expiresAt[gap] = s.expiresAt[curr]
+
+			s.keys[curr] = nil
+			s.handles[curr] = arena.Handle{}
+			s.expiresAt[curr] = 0
+			gap = curr
+		}
+		curr = (curr + 1) & s.mask
 	}
 }
 
@@ -285,70 +725,119 @@ func (s *shardIndex) delete(key []byte) (arena.Handle, bool) {
 		}
 		if bytesEq(s.keys[i], key) {
 			old := s.handles[i]
-			s.keys[i] = nil
-			s.handles[i] = arena.Handle{}
-			s.count--
-			s.rehash((i + 1) & s.mask)
+			s.deleteAt(i)
 			return old, true
 		}
 		i = (i + 1) & s.mask
 	}
 }
 
-func (s *shardIndex) rehash(start uint64) {
-	i := start
-	for {
-		if s.keys[i] == nil {
-			return
-		}
-		k := s.keys[i]
-		h := s.handles[i]
-		desired := hashKey(k) & s.mask
-		if s.canMove(desired, i, start) {
-			gap := s.findGap(desired, i)
-			if gap != i {
-				s.keys[gap] = k
-				s.handles[gap] = h
-				s.keys[i] = nil
-				s.handles[i] = arena.Handle{}
-				continue
-			}
-		}
-		i = (i + 1) & s.mask
-	}
-}
-
-func (s *shardIndex) canMove(desired, current, gap uint64) bool {
-	if desired <= gap {
-		return current >= gap || current < desired
-	}
-	return current >= gap && current < desired
-}
-
-func (s *shardIndex) findGap(desired, current uint64) uint64 {
-	gap := desired
-	for gap != current {
-		if s.keys[gap] == nil {
-			return gap
-		}
-		gap = (gap + 1) & s.mask
-	}
-	return current
-}
-
 func (s *shardIndex) grow() {
 	oldKeys := s.keys
 	oldHandles := s.handles
+	oldExpires := s.expiresAt
 	nc := uint64(len(oldKeys)) * 2
 	s.keys = make([][]byte, nc)
 	s.handles = make([]arena.Handle, nc)
+	s.expiresAt = make([]uint32, nc)
 	s.mask = nc - 1
 	s.count = 0
+	s.scanCursor = 0
 	for i, k := range oldKeys {
 		if k != nil {
-			s.put(k, oldHandles[i])
+			s.put(k, oldHandles[i], oldExpires[i])
 		}
 	}
+}
+
+func (s *shardIndex) DeleteExpired(now uint32, limit int) []arena.Handle {
+	if s.count == 0 || limit <= 0 {
+		return nil
+	}
+	var freed []arena.Handle
+	scanned := 0
+	for scanned < limit {
+		idx := s.scanCursor
+		s.scanCursor = (s.scanCursor + 1) & s.mask
+		scanned++
+
+		if s.keys[idx] == nil {
+			continue
+		}
+		if s.expiresAt[idx] != 0 && now >= s.expiresAt[idx] {
+			freed = append(freed, s.handles[idx])
+			s.deleteAt(idx)
+		}
+	}
+	return freed
+}
+
+func (s *shardIndex) scanPrefix(prefix []byte, cursor uint64, limit int, now uint32) ([][]byte, uint64) {
+	if s.count == 0 || limit <= 0 {
+		return nil, 0
+	}
+	cap := uint64(len(s.keys))
+	if cursor >= cap {
+		return nil, 0
+	}
+
+	var results [][]byte
+	idx := cursor
+
+	for idx < cap {
+		if s.keys[idx] != nil {
+			if s.expiresAt[idx] == 0 || now < s.expiresAt[idx] {
+				if len(prefix) == 0 || bytesHasPrefix(s.keys[idx], prefix) {
+					results = append(results, s.keys[idx])
+					if len(results) >= limit {
+						next := idx + 1
+						if next >= cap {
+							next = 0
+						}
+						return results, next
+					}
+				}
+			}
+		}
+		idx++
+	}
+
+	return results, 0
+}
+
+func (s *shardIndex) deletePrefix(prefix []byte, now uint32) ([]arena.Handle, [][]byte) {
+	if s.count == 0 {
+		return nil, nil
+	}
+	var freed []arena.Handle
+	var deletedKeys [][]byte
+	idx := uint64(0)
+	cap := uint64(len(s.keys))
+
+	for idx < cap {
+		if s.keys[idx] != nil {
+			if len(prefix) == 0 || bytesHasPrefix(s.keys[idx], prefix) {
+				freed = append(freed, s.handles[idx])
+				deletedKeys = append(deletedKeys, s.keys[idx])
+				s.deleteAt(idx)
+				continue
+			}
+		}
+		idx++
+	}
+	return freed, deletedKeys
+}
+
+func bytesHasPrefix(s, prefix []byte) bool {
+	if len(s) < len(prefix) {
+		return false
+	}
+	for i := range prefix {
+		if s[i] != prefix[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func bytesEq(a, b []byte) bool {
@@ -447,12 +936,106 @@ func (ss *ShardSet) CacheFor(key []byte) CacheService {
 	return ss.shards[hashKey(key)%uint64(len(ss.shards))]
 }
 
+// CacheIndexFor returns the shard index that owns key.
+func (ss *ShardSet) CacheIndexFor(key []byte) int {
+	if ss == nil || len(ss.shards) == 0 {
+		return 0
+	}
+	return int(hashKey(key) % uint64(len(ss.shards)))
+}
+
 // ShardCount returns the number of shards.
 func (ss *ShardSet) ShardCount() int {
 	if ss == nil {
 		return 0
 	}
 	return len(ss.shards)
+}
+
+// CacheForShard returns the cache for a specific shard index.
+func (ss *ShardSet) CacheForShard(idx int) CacheService {
+	if ss == nil || idx < 0 || idx >= len(ss.shards) {
+		return nil
+	}
+	return ss.shards[idx]
+}
+
+// Scan iterates matching keys across shards. Upper 16 bits of cursor = shard index, lower 48 bits = bucket index inside shard.
+func (ss *ShardSet) Scan(prefix []byte, cursor uint64, count int) ([][]byte, uint64, error) {
+	if ss == nil || len(ss.shards) == 0 {
+		return nil, 0, nil
+	}
+	shardIdx := int(cursor >> 48)
+	innerCursor := cursor & 0x0000FFFFFFFFFFFF
+
+	if shardIdx >= len(ss.shards) {
+		return nil, 0, nil
+	}
+
+	keys, nextInner, err := ss.shards[shardIdx].Scan(prefix, innerCursor, count)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	var nextCursor uint64
+	if nextInner == 0 {
+		nextShard := shardIdx + 1
+		if nextShard >= len(ss.shards) {
+			nextCursor = 0
+		} else {
+			nextCursor = uint64(nextShard) << 48
+		}
+	} else {
+		nextCursor = (uint64(shardIdx) << 48) | nextInner
+	}
+
+	return keys, nextCursor, nil
+}
+
+// DelPrefix deletes matching keys across all shards and returns total deleted count.
+func (ss *ShardSet) DelPrefix(prefix []byte) (uint64, error) {
+	if ss == nil || len(ss.shards) == 0 {
+		return 0, nil
+	}
+	var total uint64
+	for _, shard := range ss.shards {
+		n, err := shard.DelPrefix(prefix)
+		if err != nil {
+			return total, err
+		}
+		total += n
+	}
+	return total, nil
+}
+
+// StartGCLoop starts a background goroutine that periodically submits
+// DeleteExpired jobs to the provided WorkerPool.
+func (ss *ShardSet) StartGCLoop(workers *WorkerPool, limit int) {
+	if ss == nil || len(ss.shards) == 0 {
+		return
+	}
+	go func() {
+		ticker := time.NewTicker(1 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				if ss.closed.Load() {
+					return
+				}
+				for i := 0; i < len(ss.shards); i++ {
+					idx := i
+					workers.Submit(Job{
+						Handle: func(canceled bool) {
+							if !canceled && !ss.closed.Load() {
+								_ = ss.shards[idx].DeleteExpired(limit)
+							}
+						},
+					}, idx)
+				}
+			}
+		}
+	}()
 }
 
 // PickByAddr returns the shard index for a remote address.  Used by

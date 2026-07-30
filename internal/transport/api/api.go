@@ -22,6 +22,10 @@ type Recorder interface {
 	ObserveSet(status string, dur time.Duration)
 	ObserveGet(status string, dur time.Duration)
 	ObserveDel(status string, dur time.Duration)
+	ObserveCAS(status string, dur time.Duration)
+	ObserveIncr(status string, dur time.Duration)
+	ObserveScan(status string, dur time.Duration)
+	ObserveDelPrefix(status string, dur time.Duration)
 }
 
 // Transport is the abstract listener / connection-servicer used by
@@ -36,9 +40,30 @@ type Transport interface {
 // and writes.  The transport is single-threaded per shard, so the
 // implementation does not need to provide its own synchronisation.
 type CacheService interface {
-	Set(key, value []byte) ([]byte, error)
+	Set(key, value []byte, ttlSeconds uint32) ([]byte, error)
 	Get(key []byte) ([]byte, error)
 	Delete(key []byte) error
+	DeleteExpired(limit int) error
+	CAS(key, expectedValue, newValue []byte) (currentValue []byte, swapped bool, err error)
+	Incr(key []byte, delta int64) (int64, error)
+	Scan(prefix []byte, cursor uint64, count int) ([][]byte, uint64, error)
+	DelPrefix(prefix []byte) (uint64, error)
+	// Hashes
+	HSet(key, field, value []byte) (updated bool, err error)
+	HGet(key, field []byte) (value []byte, err error)
+	HDel(key, field []byte) (deleted bool, err error)
+	HGetAll(key []byte) (fields, values [][]byte, err error)
+	// Lists
+	LPush(key, elem []byte) (length uint32, err error)
+	LPop(key []byte) (elem []byte, err error)
+	RPush(key, elem []byte) (length uint32, err error)
+	RPop(key []byte) (elem []byte, err error)
+	LLen(key []byte) (length uint32, err error)
+	// Sets
+	SAdd(key, member []byte) (added bool, err error)
+	SRem(key, member []byte) (removed bool, err error)
+	SIsMember(key, member []byte) (isMember bool, err error)
+	SMembers(key []byte) (members [][]byte, err error)
 	Close() error
 }
 
@@ -48,9 +73,12 @@ type CacheService interface {
 // invariant.
 type ShardRouter interface {
 	CacheFor(key []byte) CacheService
+	CacheIndexFor(key []byte) int
 	// ShardCount returns the number of shards.  Transports use this
 	// to size their per-shard worker pools.
 	ShardCount() int
+	Scan(prefix []byte, cursor uint64, count int) ([][]byte, uint64, error)
+	DelPrefix(prefix []byte) (uint64, error)
 }
 
 // Errors returned by CacheService implementations.

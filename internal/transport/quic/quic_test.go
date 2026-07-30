@@ -13,14 +13,18 @@ import (
 
 type mockCache struct{}
 
-func (m *mockCache) Set(key, value []byte) ([]byte, error) { return value, nil }
-func (m *mockCache) Get(key []byte) ([]byte, error)        { return nil, api.ErrNotFound }
-func (m *mockCache) Delete(key []byte) error               { return nil }
-func (m *mockCache) Close() error                          { return nil }
+func (m *mockCache) Set(k, v []byte, ttlSeconds uint32) ([]byte, error) { return nil, nil }
+func (m *mockCache) Get(k []byte) ([]byte, error)       { return nil, api.ErrNotFound }
+func (m *mockCache) Delete(k []byte) error              { return nil }
+func (m *mockCache) DeleteExpired(limit int) error      { return nil }
+func (m *mockCache) CAS(k, ev, nv []byte) ([]byte, bool, error) { return nil, true, nil }
+func (m *mockCache) Incr(k []byte, d int64) (int64, error) { return d, nil }
+func (m *mockCache) Close() error                       { return nil }
 
 type mockRouter struct{}
 
 func (m *mockRouter) CacheFor(key []byte) api.CacheService { return &mockCache{} }
+func (m *mockRouter) CacheIndexFor(key []byte) int         { return 0 }
 func (m *mockRouter) ShardCount() int                      { return 1 }
 
 func TestQUICTransportValidation(t *testing.T) {
@@ -49,25 +53,25 @@ func TestHandleFrameQUIC(t *testing.T) {
 
 	// Unknown opcode
 	fr := &proto.Frame{Op: 99, Key: []byte("k")}
-	if handleFrameQUIC(mr, fr, &buf, noopRecorder{}) {
+	if handleFrameQUIC(mr, fr, &buf, noopRecorder{}, 0) {
 		t.Error("expected handleFrameQUIC to return false for unknown Op")
 	}
 
 	// Set
 	frSet := &proto.Frame{Op: proto.OpSet, Key: []byte("k"), Value: []byte("v")}
-	if !handleFrameQUIC(mr, frSet, &buf, noopRecorder{}) {
+	if !handleFrameQUIC(mr, frSet, &buf, noopRecorder{}, 0) {
 		t.Error("expected handleFrameQUIC to succeed for Set")
 	}
 
 	// Get missing
 	frGet := &proto.Frame{Op: proto.OpGet, Key: []byte("k")}
-	if !handleFrameQUIC(mr, frGet, &buf, noopRecorder{}) {
+	if !handleFrameQUIC(mr, frGet, &buf, noopRecorder{}, 0) {
 		t.Error("expected handleFrameQUIC to handle Get missing")
 	}
 
 	// Del
 	frDel := &proto.Frame{Op: proto.OpDel, Key: []byte("k")}
-	if !handleFrameQUIC(mr, frDel, &buf, noopRecorder{}) {
+	if !handleFrameQUIC(mr, frDel, &buf, noopRecorder{}, 0) {
 		t.Error("expected handleFrameQUIC to succeed for Del")
 	}
 }
@@ -87,10 +91,10 @@ func TestHandleFrameQUICGetHit(t *testing.T) {
 	mr := &hitRouter{}
 	var buf []byte
 	frGet := &proto.Frame{Op: proto.OpGet, Key: []byte("k")}
-	if !handleFrameQUIC(mr, frGet, &buf, noopRecorder{}) {
+	if !handleFrameQUIC(mr, frGet, &buf, noopRecorder{}, 0) {
 		t.Error("handleFrameQUIC returned false on Get-hit")
 	}
-	if !bytes.Contains(buf, []byte("hit-value")) {
+	if !bytes.Contains(buf, []byte("hit")) {
 		t.Errorf("writeBuf did not contain hit value: %q", buf)
 	}
 }
@@ -147,17 +151,111 @@ func TestErrNoCertIsExported(t *testing.T) {
 	}
 }
 
-// hitRouter returns a cache that always hits with "hit-value".
+// hitRouter returns a cache that always hits with "hit".
 type hitRouter struct{}
 
 func (h *hitRouter) CacheFor(key []byte) api.CacheService { return &hitCache{} }
+func (h *hitRouter) CacheIndexFor(key []byte) int         { return 0 }
 func (h *hitRouter) ShardCount() int                      { return 1 }
 
 type hitCache struct{}
 
-func (h *hitCache) Set(key, value []byte) ([]byte, error) { return value, nil }
-func (h *hitCache) Get(key []byte) ([]byte, error) {
-	return []byte("hit-value"), nil
+func (m *hitCache) Set(k, v []byte, ttlSeconds uint32) ([]byte, error) { return nil, nil }
+func (m *hitCache) Get(k []byte) ([]byte, error)       { return []byte("hit"), nil }
+func (m *hitCache) Delete(k []byte) error              { return nil }
+func (m *hitCache) DeleteExpired(limit int) error      { return nil }
+func (m *hitCache) CAS(k, ev, nv []byte) ([]byte, bool, error) { return nil, true, nil }
+func (m *hitCache) Incr(k []byte, d int64) (int64, error) { return d, nil }
+func (m *hitCache) Close() error                       { return nil }
+
+
+func (m *mockCache) Scan(prefix []byte, cursor uint64, count int) ([][]byte, uint64, error) {
+	return nil, 0, nil
 }
-func (h *hitCache) Delete(key []byte) error { return nil }
-func (h *hitCache) Close() error            { return nil }
+func (m *mockCache) DelPrefix(prefix []byte) (uint64, error) {
+	return 0, nil
+}
+
+
+func (m *mockRouter) Scan(prefix []byte, cursor uint64, count int) ([][]byte, uint64, error) {
+	return nil, 0, nil
+}
+func (m *mockRouter) DelPrefix(prefix []byte) (uint64, error) {
+	return 0, nil
+}
+
+
+func (h *hitRouter) Scan(prefix []byte, cursor uint64, count int) ([][]byte, uint64, error) { return nil, 0, nil }
+func (h *hitRouter) DelPrefix(prefix []byte) (uint64, error) { return 0, nil }
+func (h *hitCache) Scan(prefix []byte, cursor uint64, count int) ([][]byte, uint64, error) { return nil, 0, nil }
+func (h *hitCache) DelPrefix(prefix []byte) (uint64, error) { return 0, nil }
+
+
+func (m *mockCache) HSet(key, field, value []byte) (bool, error) { return false, nil }
+func (m *mockCache) HGet(key, field []byte) ([]byte, error) { return nil, nil }
+func (m *mockCache) HDel(key, field []byte) (bool, error) { return false, nil }
+func (m *mockCache) HGetAll(key []byte) ([][]byte, [][]byte, error) { return nil, nil, nil }
+func (m *mockCache) LPush(key, elem []byte) (uint32, error) { return 0, nil }
+func (m *mockCache) LPop(key []byte) ([]byte, error) { return nil, nil }
+func (m *mockCache) RPush(key, elem []byte) (uint32, error) { return 0, nil }
+func (m *mockCache) RPop(key []byte) ([]byte, error) { return nil, nil }
+func (m *mockCache) LLen(key []byte) (uint32, error) { return 0, nil }
+func (m *mockCache) SAdd(key, member []byte) (bool, error) { return false, nil }
+func (m *mockCache) SRem(key, member []byte) (bool, error) { return false, nil }
+func (m *mockCache) SIsMember(key, member []byte) (bool, error) { return false, nil }
+func (m *mockCache) SMembers(key []byte) ([][]byte, error) { return nil, nil }
+
+
+func (h *hitCache) HSet(key, field, value []byte) (bool, error) { return false, nil }
+func (h *hitCache) HGet(key, field []byte) ([]byte, error) { return nil, nil }
+func (h *hitCache) HDel(key, field []byte) (bool, error) { return false, nil }
+func (h *hitCache) HGetAll(key []byte) ([][]byte, [][]byte, error) { return nil, nil, nil }
+func (h *hitCache) LPush(key, elem []byte) (uint32, error) { return 0, nil }
+func (h *hitCache) LPop(key []byte) ([]byte, error) { return nil, nil }
+func (h *hitCache) RPush(key, elem []byte) (uint32, error) { return 0, nil }
+func (h *hitCache) RPop(key []byte) ([]byte, error) { return nil, nil }
+func (h *hitCache) LLen(key []byte) (uint32, error) { return 0, nil }
+func (h *hitCache) SAdd(key, member []byte) (bool, error) { return false, nil }
+func (h *hitCache) SRem(key, member []byte) (bool, error) { return false, nil }
+func (h *hitCache) SIsMember(key, member []byte) (bool, error) { return false, nil }
+func TestHandleFrameQUICAllOps(t *testing.T) {
+	mr := &mockRouter{}
+	var buf []byte
+
+	ops := []struct {
+		op  proto.OpCode
+		val []byte
+	}{
+		{proto.OpSet, []byte("val")},
+		{proto.OpSetEx, append([]byte{0, 0, 0, 10}, []byte("val")...)},
+		{proto.OpGet, nil},
+		{proto.OpDel, nil},
+		{proto.OpCAS, append([]byte{0, 0, 0, 3}, []byte("valval")...)},
+		{proto.OpIncr, []byte{1, 0, 0, 0, 0, 0, 0, 0}},
+		{proto.OpScan, []byte{0, 0, 0, 0, 0, 0, 0, 0, 10, 0, 0, 0}},
+		{proto.OpDelPrefix, nil},
+		{proto.OpHSet, append([]byte{4, 0}, []byte("nameAlice")...)},
+		{proto.OpHGet, []byte("name")},
+		{proto.OpHDel, []byte("name")},
+		{proto.OpHGetAll, nil},
+		{proto.OpLPush, []byte("elem")},
+		{proto.OpLPop, nil},
+		{proto.OpRPush, []byte("elem")},
+		{proto.OpRPop, nil},
+		{proto.OpLLen, nil},
+		{proto.OpSAdd, []byte("member")},
+		{proto.OpSRem, []byte("member")},
+		{proto.OpSIsMember, []byte("member")},
+		{proto.OpSMembers, nil},
+	}
+
+	for _, o := range ops {
+		buf = buf[:0]
+		fr := &proto.Frame{Op: o.op, Key: []byte("k"), Value: o.val}
+		if !handleFrameQUIC(mr, fr, &buf, noopRecorder{}, 0) {
+			t.Errorf("expected handleFrameQUIC to return true for op %v", o.op)
+		}
+	}
+}
+
+func (h *hitCache) SMembers(key []byte) ([][]byte, error) { return nil, nil }

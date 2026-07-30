@@ -4,6 +4,7 @@
 package main
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -329,11 +330,13 @@ func TestUpdateGaugesReturns(t *testing.T) {
 	// we let it execute one tick and then rely on test timeout to
 	// bail.  We don't have a way to stop the goroutine cleanly,
 	// so this test just exercises the body without asserting on it.
+	ctx, cancel := context.WithCancel(context.Background())
 	go func() {
-		updateGauges(ss, nil)
+		updateGauges(ctx, ss, nil)
 	}()
 	// Let one tick happen.
 	time.Sleep(20 * time.Millisecond)
+	cancel()
 }
 
 func TestInitMetrics(t *testing.T) {
